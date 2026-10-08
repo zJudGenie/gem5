@@ -75,6 +75,7 @@ enum ExceptionCode : uint64_t
     ECALL_MACHINE = 11,
     INST_PAGE = 12,
     LOAD_PAGE = 13,
+    TAG_MISMATCH = 14,
     STORE_PAGE = 15,
     AMO_PAGE = 15,
     INST_GUEST_PAGE = 20, // H-extension

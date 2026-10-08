@@ -233,6 +233,7 @@ class AddressFault : public RiscvFault
 
             case INST_ACCESS: case LOAD_ACCESS: case STORE_ACCESS:
             case INST_PAGE: case LOAD_PAGE: case STORE_PAGE:
+            case TAG_MISMATCH:
             case INST_GUEST_PAGE: case LOAD_GUEST_PAGE: case STORE_GUEST_PAGE:
                 return _two_stage;
             default:
@@ -241,6 +242,14 @@ class AddressFault : public RiscvFault
     }
     RegVal trap_value() const override { return _vaddr; }
     RegVal trap_value2() const override { return _gpaddr >> 2; }
+};
+
+class TagMismatchFault : public AddressFault
+{
+  public:
+    TagMismatchFault(const Addr vaddr)
+        : AddressFault(vaddr, ExceptionCode::TAG_MISMATCH)
+    {}
 };
 
 class BreakpointFault : public RiscvFault
