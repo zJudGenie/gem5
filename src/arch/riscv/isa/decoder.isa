@@ -1333,6 +1333,23 @@ decode QUADRANT default Unknown::unknown() {
             }
         }
 
+        0x02: decode FUNCT3 {
+            format LoadCt {
+                0x0: lbct({{ Rd_sd = Mem_sb; }});
+                0x1: lhct({{ Rd_sd = Mem_sh; }});
+                0x2: lwct({{ Rd_sd = Mem_sw; }});
+                0x3: decode RVTYPE {
+                    0x1: ldct({{ Rd_sd = Mem_sd; }});
+                }
+                0x4: lbuct({{ Rd = Mem_ub; }});
+                0x5: lhuct({{ Rd = Mem_uh; }});
+                0x6: decode RVTYPE {
+                    0x1: lwuct({{ Rd = Mem_uw; }});
+                }
+                0x7: ltt({{ Rd = 0; /* TODO: load tag */ }});
+            }
+        }
+
         0x03: decode FUNCT3 {
             format FenceOp {
                 0x0: fence({{
@@ -2061,6 +2078,17 @@ decode QUADRANT default Unknown::unknown() {
                 }}, {{
                     EA = Rs1 + Vs2_ud[vs2ElemIdx];
                 }}, inst_flags=SimdIndexedStoreOp);
+            }
+        }
+
+        0x0a: decode FUNCT3 {
+            format StoreCt {
+                0x0: sbct({{ Mem_ub = Rs2_ub; }});
+                0x1: shct({{ Mem_uh = Rs2_uh; }});
+                0x2: swct({{ Mem_uw = Rs2_uw; }});
+                0x3: decode RVTYPE {
+                    0x1: sdct({{ Mem_ud = Rs2_ud; }});
+                }
             }
         }
 
