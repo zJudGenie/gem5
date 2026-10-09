@@ -255,6 +255,16 @@ enum MiscRegIndex
     MISCREG_MNCAUSE,
     MISCREG_MNSTATUS,
 
+    // Timber-V custom CSRs
+    MISCREG_MTSTATUS,
+    MISCREG_STSTATUS,
+    MISCREG_STTCB,
+    MISCREG_STTVEC,
+    MISCREG_STSCRATCH,
+    MISCREG_SPMPBASE0, MISCREG_SPMPBASE1, MISCREG_SPMPBASE2, MISCREG_SPMPBASE3, MISCREG_SPMPBASE4, MISCREG_SPMPBASE5, MISCREG_SPMPBASE6, MISCREG_SPMPBASE7,
+    MISCREG_SPMPBOUND0, MISCREG_SPMPBOUND1, MISCREG_SPMPBOUND2, MISCREG_SPMPBOUND3, MISCREG_SPMPBOUND4, MISCREG_SPMPBOUND5, MISCREG_SPMPBOUND6, MISCREG_SPMPBOUND7,
+    MISCREG_SPMPFLAGS0, MISCREG_SPMPFLAGS1, MISCREG_SPMPFLAGS2, MISCREG_SPMPFLAGS3, MISCREG_SPMPFLAGS4, MISCREG_SPMPFLAGS5, MISCREG_SPMPFLAGS6, MISCREG_SPMPFLAGS7,
+
     // the following MicsRegIndex are RV32 only
     MISCREG_MSTATUSH,
 
@@ -373,6 +383,16 @@ enum CSRIndex
     CSR_HPMCOUNTER30H = 0xC9E,
     CSR_HPMCOUNTER31H = 0xC9F,
     // rv32 only csr register end
+
+    // Timber-V custom CSRs
+    CSR_MTSTATUS = 0x7f0,
+    CSR_STSTATUS = 0x5f0,
+    CSR_STTCB    = 0x5f1,
+    CSR_STTVEC   = 0x5f2,
+    CSR_STSCRATCH= 0x5f3,
+    CSR_SPMPBASE0 = 0x5c0, CSR_SPMPBASE1 = 0x5c4, CSR_SPMPBASE2 = 0x5c8, CSR_SPMPBASE3 = 0x5cc, CSR_SPMPBASE4 = 0x5d0, CSR_SPMPBASE5 = 0x5d4, CSR_SPMPBASE6 = 0x5d8, CSR_SPMPBASE7 = 0x5dc,
+    CSR_SPMPBOUND0 = 0x5c1, CSR_SPMPBOUND1 = 0x5c5, CSR_SPMPBOUND2 = 0x5c9, CSR_SPMPBOUND3 = 0x5cd, CSR_SPMPBOUND4 = 0x5d1, CSR_SPMPBOUND5 = 0x5d5, CSR_SPMPBOUND6 = 0x5d9, CSR_SPMPBOUND7 = 0x5dd,
+    CSR_SPMPFLAGS0 = 0x5c2, CSR_SPMPFLAGS1 = 0x5c6, CSR_SPMPFLAGS2 = 0x5ca, CSR_SPMPFLAGS3 = 0x5ce, CSR_SPMPFLAGS4 = 0x5d2, CSR_SPMPFLAGS5 = 0x5d6, CSR_SPMPFLAGS6 = 0x5da, CSR_SPMPFLAGS7 = 0x5de,
 
     CSR_SSTATUS = 0x100,
     CSR_SIE = 0x104,
@@ -1321,6 +1341,37 @@ const std::unordered_map<int, CSRMetadata> CSRData = {
     {CSR_VSATP,
         {"vsatp", MISCREG_VSATP, rvTypeFlags(RV64),
         isaExtsFlags('h')}},
+
+    // Timber-V custom CSRs
+    {CSR_MTSTATUS, {"mtstatus", MISCREG_MTSTATUS, rvTypeFlags(RV64, RV32), isaExtsFlags()}},
+    {CSR_STSTATUS, {"ststatus", MISCREG_STSTATUS, rvTypeFlags(RV64, RV32), isaExtsFlags()}},
+    {CSR_STTCB, {"sttcb", MISCREG_STTCB, rvTypeFlags(RV64, RV32), isaExtsFlags()}},
+    {CSR_STTVEC, {"sttvec", MISCREG_STTVEC, rvTypeFlags(RV64, RV32), isaExtsFlags()}},
+    {CSR_STSCRATCH, {"stscratch", MISCREG_STSCRATCH, rvTypeFlags(RV64, RV32), isaExtsFlags()}},
+    {CSR_SPMPBASE0, {"spmpbase0", MISCREG_SPMPBASE0, rvTypeFlags(RV64, RV32), isaExtsFlags()}},
+    {CSR_SPMPBASE1, {"spmpbase1", MISCREG_SPMPBASE1, rvTypeFlags(RV64, RV32), isaExtsFlags()}},
+    {CSR_SPMPBASE2, {"spmpbase2", MISCREG_SPMPBASE2, rvTypeFlags(RV64, RV32), isaExtsFlags()}},
+    {CSR_SPMPBASE3, {"spmpbase3", MISCREG_SPMPBASE3, rvTypeFlags(RV64, RV32), isaExtsFlags()}},
+    {CSR_SPMPBASE4, {"spmpbase4", MISCREG_SPMPBASE4, rvTypeFlags(RV64, RV32), isaExtsFlags()}},
+    {CSR_SPMPBASE5, {"spmpbase5", MISCREG_SPMPBASE5, rvTypeFlags(RV64, RV32), isaExtsFlags()}},
+    {CSR_SPMPBASE6, {"spmpbase6", MISCREG_SPMPBASE6, rvTypeFlags(RV64, RV32), isaExtsFlags()}},
+    {CSR_SPMPBASE7, {"spmpbase7", MISCREG_SPMPBASE7, rvTypeFlags(RV64, RV32), isaExtsFlags()}},
+    {CSR_SPMPBOUND0, {"spmpbound0", MISCREG_SPMPBOUND0, rvTypeFlags(RV64, RV32), isaExtsFlags()}},
+    {CSR_SPMPBOUND1, {"spmpbound1", MISCREG_SPMPBOUND1, rvTypeFlags(RV64, RV32), isaExtsFlags()}},
+    {CSR_SPMPBOUND2, {"spmpbound2", MISCREG_SPMPBOUND2, rvTypeFlags(RV64, RV32), isaExtsFlags()}},
+    {CSR_SPMPBOUND3, {"spmpbound3", MISCREG_SPMPBOUND3, rvTypeFlags(RV64, RV32), isaExtsFlags()}},
+    {CSR_SPMPBOUND4, {"spmpbound4", MISCREG_SPMPBOUND4, rvTypeFlags(RV64, RV32), isaExtsFlags()}},
+    {CSR_SPMPBOUND5, {"spmpbound5", MISCREG_SPMPBOUND5, rvTypeFlags(RV64, RV32), isaExtsFlags()}},
+    {CSR_SPMPBOUND6, {"spmpbound6", MISCREG_SPMPBOUND6, rvTypeFlags(RV64, RV32), isaExtsFlags()}},
+    {CSR_SPMPBOUND7, {"spmpbound7", MISCREG_SPMPBOUND7, rvTypeFlags(RV64, RV32), isaExtsFlags()}},
+    {CSR_SPMPFLAGS0, {"spmpflags0", MISCREG_SPMPFLAGS0, rvTypeFlags(RV64, RV32), isaExtsFlags()}},
+    {CSR_SPMPFLAGS1, {"spmpflags1", MISCREG_SPMPFLAGS1, rvTypeFlags(RV64, RV32), isaExtsFlags()}},
+    {CSR_SPMPFLAGS2, {"spmpflags2", MISCREG_SPMPFLAGS2, rvTypeFlags(RV64, RV32), isaExtsFlags()}},
+    {CSR_SPMPFLAGS3, {"spmpflags3", MISCREG_SPMPFLAGS3, rvTypeFlags(RV64, RV32), isaExtsFlags()}},
+    {CSR_SPMPFLAGS4, {"spmpflags4", MISCREG_SPMPFLAGS4, rvTypeFlags(RV64, RV32), isaExtsFlags()}},
+    {CSR_SPMPFLAGS5, {"spmpflags5", MISCREG_SPMPFLAGS5, rvTypeFlags(RV64, RV32), isaExtsFlags()}},
+    {CSR_SPMPFLAGS6, {"spmpflags6", MISCREG_SPMPFLAGS6, rvTypeFlags(RV64, RV32), isaExtsFlags()}},
+    {CSR_SPMPFLAGS7, {"spmpflags7", MISCREG_SPMPFLAGS7, rvTypeFlags(RV64, RV32), isaExtsFlags()}},
 };
 
 /**
