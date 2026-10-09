@@ -197,6 +197,7 @@ const std::array<const char *, NUM_MISCREGS> MiscRegNames = {{
     [MISCREG_RESERVED07]    = "",
     [MISCREG_FFLAGS]        = "FFLAGS",
     [MISCREG_FRM]           = "FRM",
+    [MISCREG_TRACE]         = "TRACE",
 
     [MISCREG_VSTART]        = "VSTART",
     [MISCREG_VXSAT]         = "VXSAT",

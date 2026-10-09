@@ -131,7 +131,7 @@ class PMP : public SimObject
     {
         Addr base = 0;
         Addr bound = -1;
-        uint8_t flags = 0;
+        uint8_t flags = 0x7;
 
         void serialize(CheckpointOut &cp) const
         {

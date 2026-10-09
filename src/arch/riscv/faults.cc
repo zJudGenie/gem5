@@ -44,6 +44,9 @@
 #include "sim/full_system.hh"
 #include "sim/system.hh"
 #include "sim/workload.hh"
+#include <iostream>
+#include "mem/translating_port_proxy.hh"
+#include "arch/riscv/regs/int.hh"
 
 namespace gem5
 {
@@ -321,6 +324,45 @@ BreakpointFault::invokeSE(ThreadContext *tc, const StaticInstPtr &inst)
         schedRelBreak(0);
     }
 }
+
+void
+SyscallFault::invoke(ThreadContext *tc, const StaticInstPtr &inst)
+{
+    if (FullSystem) {
+        if (tc->getReg(int_reg::A7) == 64) { // a7 == 64 (sys_write)
+            int fd = tc->getReg(int_reg::A0); // a0
+            if (fd == 1 || fd == 2) {
+                Addr buf_ptr = tc->getReg(int_reg::A1); // a1
+                int len = tc->getReg(int_reg::A2); // a2
+                if (len > 0 && len < 1000000) {
+                    char *buf = new char[len + 1];
+                    TranslatingPortProxy(tc).readBlob(buf_ptr, (uint8_t*)buf, len);
+                    buf[len] = '\0';
+                    std::cout << buf;
+                    std::cout.flush();
+                    delete[] buf;
+                    
+                    // Return number of bytes written
+                    tc->setReg(int_reg::A0, (RegVal)len); // a0 = len
+                } else {
+                    tc->setReg(int_reg::A0, (RegVal)0);
+                }
+                
+                // Advance PC
+                auto pc_state = tc->pcState().as<PCState>();
+                if (inst)
+                    inst->advancePC(pc_state);
+                else
+                    pc_state.advance();
+                tc->pcState(pc_state);
+                return;
+            }
+        }
+    }
+    
+    RiscvFault::invoke(tc, inst);
+}
+
 
 void
 SyscallFault::invokeSE(ThreadContext *tc, const StaticInstPtr &inst)

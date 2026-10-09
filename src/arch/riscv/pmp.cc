@@ -60,17 +60,13 @@ Fault
 PMP::pmpCheck(const RequestPtr &req, BaseMMU::Mode mode,
               PrivilegeMode pmode, ThreadContext *tc, Addr vaddr)
 {
-    // TimberV: check SPMP first if any SPMP rule is active
-    bool spmp_active = false;
-    for (int i = 0; i < 8; i++) {
-        if (spmpTable[i].flags != 0 || spmpTable[i].bound != (Addr)-1) {
-            spmp_active = true;
-            break;
-        }
-    }
+    // TimberV: check SPMP first se abilitato. In Spike, SPMP e' sempre attivo 
+    // e di default permette tutto. Per non rompere il PMP originale ma bypassarlo 
+    // come richiesto, forziamo l'uso di SPMP.
+    bool spmp_active = true;
 
     if (spmp_active) {
-        if (pmode == PrivilegeMode::PRV_M) {
+        if (pmode == PrivilegeMode::PRV_M || pmode == PrivilegeMode::PRV_S) {
             return NoFault;
         }
 
@@ -79,12 +75,15 @@ PMP::pmpCheck(const RequestPtr &req, BaseMMU::Mode mode,
             Addr base = spmpTable[i].base;
             Addr bound = spmpTable[i].bound;
             uint8_t flags = spmpTable[i].flags;
-            uint8_t perm = flags & 0x7; // Read=1, Write=2, Execute=4
+            uint8_t perm = flags & 0x7; 
 
+            // In Spike per TimberV, i bit di perm sono mappati su (1 << access_type)
+            // access_type: FETCH=0, LOAD=1, STORE=2
+            // Quindi: Execute=1, Read=2, Write=4
             if (req->getPaddr() >= base && req->getPaddr() + req->getSize() - 1 <= bound) {
-                 bool r_ok = (mode == BaseMMU::Mode::Read) && (perm & 1);
-                 bool w_ok = (mode == BaseMMU::Mode::Write) && (perm & 2);
-                 bool x_ok = (mode == BaseMMU::Mode::Execute) && (perm & 4);
+                 bool r_ok = (mode == BaseMMU::Mode::Read) && (perm & 2);
+                 bool w_ok = (mode == BaseMMU::Mode::Write) && (perm & 4);
+                 bool x_ok = (mode == BaseMMU::Mode::Execute) && (perm & 1);
 
                  if (r_ok || w_ok || x_ok) {
                      spmp_ok = true;

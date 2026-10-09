@@ -291,6 +291,7 @@ class SyscallFault : public RiscvFault
         }
     }
 
+    void invoke(ThreadContext *tc, const StaticInstPtr &inst) override;
     void invokeSE(ThreadContext *tc, const StaticInstPtr &inst) override;
 };
 
