@@ -77,13 +77,11 @@ PMP::pmpCheck(const RequestPtr &req, BaseMMU::Mode mode,
             uint8_t flags = spmpTable[i].flags;
             uint8_t perm = flags & 0x7; 
 
-            // In Spike per TimberV, i bit di perm sono mappati su (1 << access_type)
-            // access_type: FETCH=0, LOAD=1, STORE=2
-            // Quindi: Execute=1, Read=2, Write=4
+            // PMP hardware flags format: R=1, W=2, X=4
             if (req->getPaddr() >= base && req->getPaddr() + req->getSize() - 1 <= bound) {
-                 bool r_ok = (mode == BaseMMU::Mode::Read) && (perm & 2);
-                 bool w_ok = (mode == BaseMMU::Mode::Write) && (perm & 4);
-                 bool x_ok = (mode == BaseMMU::Mode::Execute) && (perm & 1);
+                 bool r_ok = (mode == BaseMMU::Mode::Read) && (perm & 1);
+                 bool w_ok = (mode == BaseMMU::Mode::Write) && (perm & 2);
+                 bool x_ok = (mode == BaseMMU::Mode::Execute) && (perm & 4);
 
                  if (r_ok || w_ok || x_ok) {
                      spmp_ok = true;
