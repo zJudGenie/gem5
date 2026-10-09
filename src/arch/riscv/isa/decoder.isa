@@ -1346,8 +1346,15 @@ decode QUADRANT default Unknown::unknown() {
                 0x6: decode RVTYPE {
                     0x1: lwuct({{ Rd = Mem_uw; }});
                 }
-                0x7: ltt({{ Rd = Mem_ub; /* TODO: load tag */ }});
             }
+            // ltt (Load Tag Test): Rd = etag - TAG[Rs1 + it_imm].
+            // Does NOT access data memory; only reads the tag map.
+            // MATCH_LTT = 0x700b, MASK_LTT = 0x707f: opcode=0x0b, funct3=0x7
+            0x7: IOp::ltt({{
+                Addr tag_addr = rvSext(Rs1 + imm);
+                uint64_t etag = (uint64_t)((machInst >> 30) & 0x3);
+                Rd = etag - timberVTags().loadTag(tag_addr);
+            }}, imm_type=int64_t, imm_code={{ imm = sext<10>(IT_IMM); }});
         }
 
         0x03: decode FUNCT3 {
