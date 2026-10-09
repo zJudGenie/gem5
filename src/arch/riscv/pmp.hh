@@ -126,6 +126,30 @@ class PMP : public SimObject
     /** a table of pmp entries */
     std::vector<PmpEntry> pmpTable;
 
+    /** single spmp entry struct */
+    struct SpmpEntry : public Serializable
+    {
+        Addr base = 0;
+        Addr bound = -1;
+        uint8_t flags = 0;
+
+        void serialize(CheckpointOut &cp) const
+        {
+            SERIALIZE_SCALAR(base);
+            SERIALIZE_SCALAR(bound);
+            SERIALIZE_SCALAR(flags);
+        }
+        void unserialize(CheckpointIn &cp)
+        {
+            UNSERIALIZE_SCALAR(base);
+            UNSERIALIZE_SCALAR(bound);
+            UNSERIALIZE_SCALAR(flags);
+        }
+    };
+
+    /** a table of spmp entries */
+    std::vector<SpmpEntry> spmpTable;
+
   public:
     /**
      * pmpCheck checks if a particular memory access
@@ -163,7 +187,23 @@ class PMP : public SimObject
     bool pmpUpdateAddr(uint32_t pmp_index, Addr this_addr);
 
     /**
+     * spmpUpdateBase updates the spmpbase for a spmp entry.
+     */
+    void spmpUpdateBase(uint32_t spmp_index, Addr base);
+
+    /**
+     * spmpUpdateBound updates the spmpbound for a spmp entry.
+     */
+    void spmpUpdateBound(uint32_t spmp_index, Addr bound);
+
+    /**
+     * spmpUpdateFlags updates the spmpflags for a spmp entry.
+     */
+    void spmpUpdateFlags(uint32_t spmp_index, uint8_t flags);
+
+    /**
      * pmpReset reset when reset signal in trigger from
+
      * CPU.
      */
     void pmpReset();

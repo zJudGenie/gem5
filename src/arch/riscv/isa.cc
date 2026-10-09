@@ -802,7 +802,28 @@ ISA::setMiscReg(RegIndex idx, RegVal val)
                 if (mmu->getPMP()->pmpUpdateAddr(pmp_index, val)) {
                     setMiscRegNoEffect(idx, val);
                 }
-          } break;
+            } break;
+          case MISCREG_SPMPBASE0 ... MISCREG_SPMPBASE7:
+            {
+                auto mmu = dynamic_cast<RiscvISA::MMU *>(tc->getMMUPtr());
+                uint32_t spmp_index = idx - MISCREG_SPMPBASE0;
+                mmu->getPMP()->spmpUpdateBase(spmp_index, val);
+                setMiscRegNoEffect(idx, val);
+            } break;
+          case MISCREG_SPMPBOUND0 ... MISCREG_SPMPBOUND7:
+            {
+                auto mmu = dynamic_cast<RiscvISA::MMU *>(tc->getMMUPtr());
+                uint32_t spmp_index = idx - MISCREG_SPMPBOUND0;
+                mmu->getPMP()->spmpUpdateBound(spmp_index, val);
+                setMiscRegNoEffect(idx, val);
+            } break;
+          case MISCREG_SPMPFLAGS0 ... MISCREG_SPMPFLAGS7:
+            {
+                auto mmu = dynamic_cast<RiscvISA::MMU *>(tc->getMMUPtr());
+                uint32_t spmp_index = idx - MISCREG_SPMPFLAGS0;
+                mmu->getPMP()->spmpUpdateFlags(spmp_index, val);
+                setMiscRegNoEffect(idx, val);
+            } break;
           case MISCREG_IP:
             {
                 RegVal mask = MI_MASK[getPrivilegeModeSet()];

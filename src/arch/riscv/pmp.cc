@@ -53,12 +53,58 @@ PMP::PMP(const Params &params) :
     numRules(0)
 {
     pmpTable.resize(pmpEntries);
+    spmpTable.resize(8);
 }
 
 Fault
 PMP::pmpCheck(const RequestPtr &req, BaseMMU::Mode mode,
               PrivilegeMode pmode, ThreadContext *tc, Addr vaddr)
 {
+    // TimberV: check SPMP first if any SPMP rule is active
+    bool spmp_active = false;
+    for (int i = 0; i < 8; i++) {
+        if (spmpTable[i].flags != 0 || spmpTable[i].bound != (Addr)-1) {
+            spmp_active = true;
+            break;
+        }
+    }
+
+    if (spmp_active) {
+        if (pmode == PrivilegeMode::PRV_M) {
+            return NoFault;
+        }
+
+        bool spmp_ok = false;
+        for (int i = 0; i < 8; i++) {
+            Addr base = spmpTable[i].base;
+            Addr bound = spmpTable[i].bound;
+            uint8_t flags = spmpTable[i].flags;
+            uint8_t perm = flags & 0x7; // Read=1, Write=2, Execute=4
+
+            if (req->getPaddr() >= base && req->getPaddr() + req->getSize() - 1 <= bound) {
+                 bool r_ok = (mode == BaseMMU::Mode::Read) && (perm & 1);
+                 bool w_ok = (mode == BaseMMU::Mode::Write) && (perm & 2);
+                 bool x_ok = (mode == BaseMMU::Mode::Execute) && (perm & 4);
+
+                 if (r_ok || w_ok || x_ok) {
+                     spmp_ok = true;
+                     break;
+                 }
+            }
+        }
+
+        if (!spmp_ok) {
+            if (req->hasVaddr()) {
+                return createAddrfault(req->getVaddr(), mode);
+            } else {
+                return createAddrfault(vaddr, mode);
+            }
+        }
+
+        return NoFault;
+    }
+
+    // Original PMP Check below:
     // First determine if pmp table should be consulted
     if (numRules == 0) {
         // If at least one PMP entry is implemented, but all PMP entries’ A
@@ -274,6 +320,30 @@ PMP::pmpUpdateAddr(uint32_t pmp_index, Addr this_addr)
     return true;
 }
 
+void
+PMP::spmpUpdateBase(uint32_t spmp_index, Addr base)
+{
+    if (spmp_index < 8) {
+        spmpTable[spmp_index].base = base;
+    }
+}
+
+void
+PMP::spmpUpdateBound(uint32_t spmp_index, Addr bound)
+{
+    if (spmp_index < 8) {
+        spmpTable[spmp_index].bound = bound;
+    }
+}
+
+void
+PMP::spmpUpdateFlags(uint32_t spmp_index, uint8_t flags)
+{
+    if (spmp_index < 8) {
+        spmpTable[spmp_index].flags = flags;
+    }
+}
+
 AddrRange
 PMP::pmpDecodeNapot(Addr pmpaddr)
 {
@@ -300,6 +370,9 @@ PMP::serialize(CheckpointOut &cp) const
     for (int i = 0; i < pmpEntries; i++) {
         pmpTable[i].serializeSection(cp, csprintf("Entry%d", i));
     }
+    for (int i = 0; i < 8; i++) {
+        spmpTable[i].serializeSection(cp, csprintf("SpmpEntry%d", i));
+    }
 }
 void
 PMP::unserialize(CheckpointIn &cp)
@@ -316,6 +389,9 @@ PMP::unserialize(CheckpointIn &cp)
         PmpEntry *tmp = &pmpTable[i];
         tmp->unserializeSection(cp, csprintf("Entry%d", i));
         pmpUpdateRule(i);
+    }
+    for (int i = 0; i < 8; i++) {
+        spmpTable[i].unserializeSection(cp, csprintf("SpmpEntry%d", i));
     }
 }
 
