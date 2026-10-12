@@ -47,6 +47,7 @@
 #include <iostream>
 #include "mem/translating_port_proxy.hh"
 #include "arch/riscv/regs/int.hh"
+#include "sim/sim_exit.hh"
 
 namespace gem5
 {
@@ -357,6 +358,9 @@ SyscallFault::invoke(ThreadContext *tc, const StaticInstPtr &inst)
                 tc->pcState(pc_state);
                 return;
             }
+        } else if (tc->getReg(int_reg::A7) == 93) { // a7 == 93 (sys_exit)
+            exitSimLoop("target called exit()", tc->getReg(int_reg::A0));
+            return;
         }
     }
     
