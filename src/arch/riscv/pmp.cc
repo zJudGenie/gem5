@@ -40,6 +40,8 @@
 #include "mem/request.hh"
 #include "params/PMP.hh"
 #include "sim/sim_object.hh"
+#include "arch/riscv/timberv_tag.hh"
+#include "arch/riscv/mmu.hh"
 
 namespace gem5
 {
@@ -64,49 +66,125 @@ PMP::PMP(const Params &params) :
     }
 }
 
+bool
+PMP::trustedModeswitch(Addr paddr, PrivilegeMode pmode, uint64_t tag,
+                       ThreadContext *tc)
+{
+    if (secLevel == 0) {
+        if (tag == TIMBV_T_CALLABLE) {
+            if (pmode == PrivilegeMode::PRV_U) {
+                if (!isUtRunnable()) {
+                    warn("Modeswitch to TRUSTED @ %#x failed: enclave not runnable!\n", paddr);
+                    return false;
+                }
+            }
+            setSecLevel(1);
+            if (tc) {
+                tc->setMiscRegNoEffect(MISCREG_MTSTATUS, getMtstatus());
+                tc->setMiscRegNoEffect(MISCREG_STSTATUS, getMtstatus());
+                auto mmu = dynamic_cast<RiscvISA::MMU *>(tc->getMMUPtr());
+                if (mmu) {
+                    mmu->flushAll();
+                }
+            }
+        }
+    } else if (secLevel == 1 && tag == TIMBV_T_NORMAL) {
+        setSecLevel(0);
+        if (tc) {
+            tc->setMiscRegNoEffect(MISCREG_MTSTATUS, getMtstatus());
+            tc->setMiscRegNoEffect(MISCREG_STSTATUS, getMtstatus());
+            auto mmu = dynamic_cast<RiscvISA::MMU *>(tc->getMMUPtr());
+            if (mmu) {
+                mmu->flushAll();
+            }
+        }
+    }
+    return true;
+}
+
 Fault
 PMP::pmpCheck(const RequestPtr &req, BaseMMU::Mode mode,
               PrivilegeMode pmode, ThreadContext *tc, Addr vaddr)
 {
-    // TimberV: check SPMP first se abilitato. In Spike, SPMP e' sempre attivo 
-    // e di default permette tutto. Per non rompere il PMP originale ma bypassarlo 
-    // come richiesto, forziamo l'uso di SPMP.
+    // TimberV: check SPMP first
     bool spmp_active = true;
 
     if (spmp_active) {
-        if (pmode == PrivilegeMode::PRV_M || pmode == PrivilegeMode::PRV_S) {
+        if (pmode == PrivilegeMode::PRV_M) {
             return NoFault;
         }
 
-        bool spmp_ok = false;
-        for (int i = 0; i < 8; i++) {
-            Addr base = spmpTable[i].base;
-            Addr bound = spmpTable[i].bound;
-            uint8_t flags = spmpTable[i].flags;
-            uint8_t perm = flags & 0x7; 
-
-            // PMP hardware flags format: R=1, W=2, X=4
-            if (req->getPaddr() >= base && req->getPaddr() + req->getSize() - 1 <= bound) {
-                 bool r_ok = (mode == BaseMMU::Mode::Read) && (perm & 1);
-                 bool w_ok = (mode == BaseMMU::Mode::Write) && (perm & 2);
-                 bool x_ok = (mode == BaseMMU::Mode::Execute) && (perm & 4);
-
-                 if (r_ok || w_ok || x_ok) {
-                     spmp_ok = true;
-                     break;
-                 }
+        // On instruction fetch, evaluate horizontal domain transitions
+        if (mode == BaseMMU::Execute) {
+            Addr paddr = req->getPaddr();
+            uint64_t tag = timberVTags().loadTag(paddr);
+            if (!trustedModeswitch(paddr, pmode, tag, tc)) {
+                return createAddrfault(req->hasVaddr() ? req->getVaddr() : vaddr, mode);
             }
         }
 
-        if (!spmp_ok) {
-            if (req->hasVaddr()) {
-                return createAddrfault(req->getVaddr(), mode);
-            } else {
-                return createAddrfault(vaddr, mode);
+        // SPMP permission checking matching Spike
+        if (pmode == PrivilegeMode::PRV_S) {
+            if (mode == BaseMMU::Execute) {
+                if (secLevel == 1) { // ST mode fetch
+                    bool st_found = false;
+                    for (int i = 0; i < 8; i++) {
+                        Addr base = spmpTable[i].base;
+                        Addr bound = spmpTable[i].bound;
+                        uint8_t flags = spmpTable[i].flags;
+                        if (req->getPaddr() >= base &&
+                            req->getPaddr() + req->getSize() - 1 <= bound &&
+                            (flags & (1 << SPMP_X_BIT))) {
+                            if (flags & SPMP_ST) {
+                                st_found = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (!st_found) {
+                        return createAddrfault(req->hasVaddr() ? req->getVaddr() : vaddr, mode);
+                    }
+                }
+                // SN mode fetch is allowed by SPMP
             }
-        }
+            // S-mode load/store: S can read/write anything in physical memory
+            return NoFault;
+        } else if (pmode == PrivilegeMode::PRV_U) {
+            bool u_ok = false;
+            for (int i = 0; i < 8; i++) {
+                Addr base = spmpTable[i].base;
+                Addr bound = spmpTable[i].bound;
+                uint8_t flags = spmpTable[i].flags;
+                uint8_t perm = flags & 0x7;
 
-        return NoFault;
+                if (req->getPaddr() >= base &&
+                    req->getPaddr() + req->getSize() - 1 <= bound) {
+                    bool r_ok = (mode == BaseMMU::Mode::Read) && (perm & (1 << SPMP_R_BIT));
+                    bool w_ok = (mode == BaseMMU::Mode::Write) && (perm & (1 << SPMP_W_BIT));
+                    bool x_ok = (mode == BaseMMU::Mode::Execute) && (perm & (1 << SPMP_X_BIT));
+
+                    if (r_ok || w_ok || x_ok) {
+                        // UT fetch requires SPMP entry with T-flag which is ACK'ed
+                        if (secLevel == 1 && mode == BaseMMU::Execute) {
+                            if (!(flags & SPMP_T) || !(flags & SPMP_ACK)) {
+                                continue;
+                            }
+                        }
+                        // User mode cannot access ST range
+                        if (flags & SPMP_ST) {
+                            continue;
+                        }
+                        u_ok = true;
+                        break;
+                    }
+                }
+            }
+
+            if (!u_ok) {
+                return createAddrfault(req->hasVaddr() ? req->getVaddr() : vaddr, mode);
+            }
+            return NoFault;
+        }
     }
 
     // Original PMP Check below:

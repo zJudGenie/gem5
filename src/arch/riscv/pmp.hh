@@ -280,6 +280,9 @@ class PMP : public SimObject
         }
     }
 
+    bool trustedModeswitch(Addr paddr, PrivilegeMode pmode, uint64_t tag,
+                           ThreadContext *tc);
+
     void updateTtcb(Addr new_ttcb)
     {
         currentTtcbPtr = new_ttcb;
