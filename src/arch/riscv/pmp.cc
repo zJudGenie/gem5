@@ -114,12 +114,17 @@ PMP::pmpCheck(const RequestPtr &req, BaseMMU::Mode mode,
             return NoFault;
         }
 
-        // On instruction fetch, evaluate horizontal domain transitions
+        // On instruction fetch, evaluate Table III fetch check & horizontal domain transitions
         if (mode == BaseMMU::Execute) {
             Addr paddr = req->getPaddr();
+            if (isTimberVActive()) {
+                if (!timberVTags().checkAccess(paddr, (uint8_t)pmode, secLevel, TIMBV_FETCH)) {
+                    return std::make_shared<TagMismatchFault>(req->hasVaddr() ? req->getVaddr() : vaddr);
+                }
+            }
             uint64_t tag = timberVTags().loadTag(paddr);
             if (!trustedModeswitch(paddr, pmode, tag, tc)) {
-                return createAddrfault(req->hasVaddr() ? req->getVaddr() : vaddr, mode);
+                return std::make_shared<TagMismatchFault>(req->hasVaddr() ? req->getVaddr() : vaddr);
             }
         }
 
@@ -148,7 +153,6 @@ PMP::pmpCheck(const RequestPtr &req, BaseMMU::Mode mode,
                 // SN mode fetch is allowed by SPMP
             }
             // S-mode load/store: S can read/write anything in physical memory
-            return NoFault;
         } else if (pmode == PrivilegeMode::PRV_U) {
             bool u_ok = false;
             for (int i = 0; i < 8; i++) {
@@ -183,8 +187,24 @@ PMP::pmpCheck(const RequestPtr &req, BaseMMU::Mode mode,
             if (!u_ok) {
                 return createAddrfault(req->hasVaddr() ? req->getVaddr() : vaddr, mode);
             }
-            return NoFault;
         }
+
+        // Table III: Global Tag Isolation Policy for Load and Store
+        if (mode != BaseMMU::Execute && isTimberVActive()) {
+            int accType = (mode == BaseMMU::Read) ? TIMBV_LOAD : TIMBV_STORE;
+            Addr start = req->getPaddr();
+            Addr end = req->getPaddr() + (req->getSize() ? req->getSize() - 1 : 0);
+            for (Addr a = start; ; a += TIMBV_TAG_GRANULARITY) {
+                if (!timberVTags().checkAccess(a, (uint8_t)pmode, secLevel, accType)) {
+                    return std::make_shared<TagMismatchFault>(
+                        req->hasVaddr() ? req->getVaddr() : vaddr);
+                }
+                if ((a / TIMBV_TAG_GRANULARITY) == (end / TIMBV_TAG_GRANULARITY))
+                    break;
+            }
+        }
+
+        return NoFault;
     }
 
     // Original PMP Check below:

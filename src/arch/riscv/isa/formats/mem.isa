@@ -666,13 +666,39 @@ def template StoreCtExecute {{
 
         %(memacc_code)s;
 
-        // Timber-V: check required tag (etag) against tag stored at EA
+        // Timber-V: check required tag (etag) against tag stored at EA and Table I policy
         {
             using namespace gem5::RiscvISA;
             uint64_t etag = (uint64_t)((machInst >> 30) & 0x3);
             uint64_t actual_tag = timberVTags().loadTag(EA);
             if (actual_tag != etag) {
                 return std::make_shared<TagMismatchFault>(EA);
+            }
+
+            // Timber-V Table I: Tag update authorization policy
+            auto mmu = dynamic_cast<RiscvISA::MMU *>(xc->tcBase()->getMMUPtr());
+            auto pmp = mmu ? mmu->getPMP() : nullptr;
+            if (pmp && pmp->isTimberVActive()) {
+                auto prv = (PrivilegeMode)xc->readMiscReg(MISCREG_PRV);
+                uint8_t sec_level = pmp->getSecLevel();
+                uint64_t ntag = (uint64_t)((machInst >> 28) & 0x3);
+
+                if (sec_level != 1 && prv != PrivilegeMode::PRV_M) {
+                    if (actual_tag != TIMBV_T_NORMAL || ntag != TIMBV_T_NORMAL) {
+                        return std::make_shared<IllegalInstFault>(
+                            "Normal-mode can only store N tags", machInst);
+                    }
+                }
+                if (prv == PrivilegeMode::PRV_U) {
+                    if (actual_tag != TIMBV_T_NORMAL && actual_tag != TIMBV_T_UTRUSTED) {
+                        return std::make_shared<IllegalInstFault>(
+                            "UT can only overwrite N and UT tags", machInst);
+                    }
+                    if (ntag != TIMBV_T_NORMAL && ntag != TIMBV_T_UTRUSTED) {
+                        return std::make_shared<IllegalInstFault>(
+                            "UT can only write N and UT tags", machInst);
+                    }
+                }
             }
         }
 
@@ -711,13 +737,39 @@ def template StoreCtInitiateAcc {{
 
         %(memacc_code)s;
 
-        // Timber-V: check required tag (etag) against tag stored at EA
+        // Timber-V: check required tag (etag) against tag stored at EA and Table I policy
         {
             using namespace gem5::RiscvISA;
             uint64_t etag = (uint64_t)((machInst >> 30) & 0x3);
             uint64_t actual_tag = timberVTags().loadTag(EA);
             if (actual_tag != etag) {
                 return std::make_shared<TagMismatchFault>(EA);
+            }
+
+            // Timber-V Table I: Tag update authorization policy
+            auto mmu = dynamic_cast<RiscvISA::MMU *>(xc->tcBase()->getMMUPtr());
+            auto pmp = mmu ? mmu->getPMP() : nullptr;
+            if (pmp && pmp->isTimberVActive()) {
+                auto prv = (PrivilegeMode)xc->readMiscReg(MISCREG_PRV);
+                uint8_t sec_level = pmp->getSecLevel();
+                uint64_t ntag = (uint64_t)((machInst >> 28) & 0x3);
+
+                if (sec_level != 1 && prv != PrivilegeMode::PRV_M) {
+                    if (actual_tag != TIMBV_T_NORMAL || ntag != TIMBV_T_NORMAL) {
+                        return std::make_shared<IllegalInstFault>(
+                            "Normal-mode can only store N tags", machInst);
+                    }
+                }
+                if (prv == PrivilegeMode::PRV_U) {
+                    if (actual_tag != TIMBV_T_NORMAL && actual_tag != TIMBV_T_UTRUSTED) {
+                        return std::make_shared<IllegalInstFault>(
+                            "UT can only overwrite N and UT tags", machInst);
+                    }
+                    if (ntag != TIMBV_T_NORMAL && ntag != TIMBV_T_UTRUSTED) {
+                        return std::make_shared<IllegalInstFault>(
+                            "UT can only write N and UT tags", machInst);
+                    }
+                }
             }
         }
 
