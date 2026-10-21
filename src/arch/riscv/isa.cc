@@ -249,6 +249,7 @@ const std::array<const char *, NUM_MISCREGS> MiscRegNames = {{
 
     [MISCREG_MTSTATUS]      = "MTSTATUS",
     [MISCREG_STSTATUS]      = "STSTATUS",
+    [MISCREG_MTTCB]         = "MTTCB",
     [MISCREG_STTCB]         = "STTCB",
     [MISCREG_STTVEC]        = "STTVEC",
     [MISCREG_STSCRATCH]     = "STSCRATCH",
@@ -700,9 +701,51 @@ ISA::readMiscReg(RegIndex idx)
             return nstatus;
         }
 
-      case MISCREG_FFLAGS_EXE:
+      case MISCREG_MTSTATUS:
+      case MISCREG_STSTATUS:
         {
-            return readMiscRegNoEffect(MISCREG_FFLAGS) & FFLAGS_MASK;
+            auto mmu = dynamic_cast<RiscvISA::MMU *>(tc->getMMUPtr());
+            if (mmu && mmu->getPMP()) {
+                return mmu->getPMP()->getMtstatus();
+            }
+            return readMiscRegNoEffect(idx);
+        }
+
+      case MISCREG_MTTCB:
+      case MISCREG_STTCB:
+        {
+            auto mmu = dynamic_cast<RiscvISA::MMU *>(tc->getMMUPtr());
+            if (mmu && mmu->getPMP()) {
+                return mmu->getPMP()->getTtcb();
+            }
+            return readMiscRegNoEffect(idx);
+        }
+
+      case MISCREG_SPMPFLAGS0 ... MISCREG_SPMPFLAGS7:
+        {
+            auto mmu = dynamic_cast<RiscvISA::MMU *>(tc->getMMUPtr());
+            if (mmu && mmu->getPMP()) {
+                return mmu->getPMP()->spmpGetFlags(idx - MISCREG_SPMPFLAGS0);
+            }
+            return readMiscRegNoEffect(idx);
+        }
+
+      case MISCREG_SPMPBASE0 ... MISCREG_SPMPBASE7:
+        {
+            auto mmu = dynamic_cast<RiscvISA::MMU *>(tc->getMMUPtr());
+            if (mmu && mmu->getPMP()) {
+                return mmu->getPMP()->spmpGetBase(idx - MISCREG_SPMPBASE0);
+            }
+            return readMiscRegNoEffect(idx);
+        }
+
+      case MISCREG_SPMPBOUND0 ... MISCREG_SPMPBOUND7:
+        {
+            auto mmu = dynamic_cast<RiscvISA::MMU *>(tc->getMMUPtr());
+            if (mmu && mmu->getPMP()) {
+                return mmu->getPMP()->spmpGetBound(idx - MISCREG_SPMPBOUND0);
+            }
+            return readMiscRegNoEffect(idx);
         }
 
       default:
@@ -823,7 +866,59 @@ ISA::setMiscReg(RegIndex idx, RegVal val)
                 auto mmu = dynamic_cast<RiscvISA::MMU *>(tc->getMMUPtr());
                 uint32_t spmp_index = idx - MISCREG_SPMPFLAGS0;
                 mmu->getPMP()->spmpUpdateFlags(spmp_index, val);
+                setMiscRegNoEffect(idx, mmu->getPMP()->spmpGetFlags(spmp_index));
+            } break;
+          case MISCREG_STTCB:
+            {
+                auto mmu = dynamic_cast<RiscvISA::MMU *>(tc->getMMUPtr());
+                auto prv = (PrivilegeMode)readMiscRegNoEffect(MISCREG_PRV);
+                if (prv == PRV_S && mmu && mmu->getPMP() && mmu->getPMP()->getSecLevel() == 0) {
+                    warn("Cannot set STTCB from SN mode @ pc %#x\n", tc->pcState().instAddr());
+                    return;
+                }
+                if (mmu && mmu->getPMP()) {
+                    mmu->getPMP()->updateTtcb(val);
+                }
                 setMiscRegNoEffect(idx, val);
+                setMiscRegNoEffect(MISCREG_MTTCB, val);
+            } break;
+          case MISCREG_MTTCB:
+            {
+                auto mmu = dynamic_cast<RiscvISA::MMU *>(tc->getMMUPtr());
+                if (mmu && mmu->getPMP()) {
+                    mmu->getPMP()->updateTtcb(val);
+                }
+                setMiscRegNoEffect(idx, val);
+                setMiscRegNoEffect(MISCREG_STTCB, val);
+            } break;
+          case MISCREG_STSTATUS:
+            {
+                auto mmu = dynamic_cast<RiscvISA::MMU *>(tc->getMMUPtr());
+                auto prv = (PrivilegeMode)readMiscRegNoEffect(MISCREG_PRV);
+                if (prv == PRV_S && mmu && mmu->getPMP() && mmu->getPMP()->getSecLevel() == 0) {
+                    warn("Cannot set STSTATUS from SN mode @ pc %#x\n", tc->pcState().instAddr());
+                    return;
+                }
+                if (mmu && mmu->getPMP()) {
+                    mmu->getPMP()->setMtstatus(val);
+                    RegVal new_status = mmu->getPMP()->getMtstatus();
+                    setMiscRegNoEffect(idx, new_status);
+                    setMiscRegNoEffect(MISCREG_MTSTATUS, new_status);
+                } else {
+                    setMiscRegNoEffect(idx, val);
+                }
+            } break;
+          case MISCREG_MTSTATUS:
+            {
+                auto mmu = dynamic_cast<RiscvISA::MMU *>(tc->getMMUPtr());
+                if (mmu && mmu->getPMP()) {
+                    mmu->getPMP()->setMtstatus(val);
+                    RegVal new_status = mmu->getPMP()->getMtstatus();
+                    setMiscRegNoEffect(idx, new_status);
+                    setMiscRegNoEffect(MISCREG_STSTATUS, new_status);
+                } else {
+                    setMiscRegNoEffect(idx, val);
+                }
             } break;
           case MISCREG_IP:
             {

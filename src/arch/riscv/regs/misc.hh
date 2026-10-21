@@ -259,6 +259,7 @@ enum MiscRegIndex
     // Timber-V custom CSRs
     MISCREG_MTSTATUS,
     MISCREG_STSTATUS,
+    MISCREG_MTTCB,
     MISCREG_STTCB,
     MISCREG_STTVEC,
     MISCREG_STSCRATCH,
@@ -389,6 +390,7 @@ enum CSRIndex
     // Timber-V custom CSRs
     CSR_MTSTATUS = 0x7f0,
     CSR_STSTATUS = 0x5f0,
+    CSR_MTTCB    = 0x7f1,
     CSR_STTCB    = 0x5f1,
     CSR_STTVEC   = 0x5f2,
     CSR_STSCRATCH= 0x5f3,
@@ -1353,6 +1355,7 @@ const std::unordered_map<int, CSRMetadata> CSRData = {
     // Timber-V custom CSRs
     {CSR_MTSTATUS, {"mtstatus", MISCREG_MTSTATUS, rvTypeFlags(RV64, RV32), isaExtsFlags()}},
     {CSR_STSTATUS, {"ststatus", MISCREG_STSTATUS, rvTypeFlags(RV64, RV32), isaExtsFlags()}},
+    {CSR_MTTCB, {"mttcb", MISCREG_MTTCB, rvTypeFlags(RV64, RV32), isaExtsFlags()}},
     {CSR_STTCB, {"sttcb", MISCREG_STTCB, rvTypeFlags(RV64, RV32), isaExtsFlags()}},
     {CSR_STTVEC, {"sttvec", MISCREG_STTVEC, rvTypeFlags(RV64, RV32), isaExtsFlags()}},
     {CSR_STSCRATCH, {"stscratch", MISCREG_STSCRATCH, rvTypeFlags(RV64, RV32), isaExtsFlags()}},

@@ -50,10 +50,18 @@ namespace RiscvISA
 PMP::PMP(const Params &params) :
     SimObject(params),
     pmpEntries(params.pmp_entries),
-    numRules(0)
+    numRules(0),
+    secLevel(0),
+    mtstatus(0),
+    currentTtcbPtr(0)
 {
     pmpTable.resize(pmpEntries);
     spmpTable.resize(8);
+    for (int i = 0; i < 8; i++) {
+        spmpTable[i].base = 0;
+        spmpTable[i].bound = (Addr)-1;
+        spmpTable[i].flags = 0x7;
+    }
 }
 
 Fault
@@ -278,6 +286,14 @@ PMP::pmpReset()
         pmpTable[i].pmpCfg &= ~(PMP_A_MASK | PMP_LOCK);
         pmpUpdateRule(i);
     }
+    for (int i = 0; i < 8; i++) {
+        spmpTable[i].base = 0;
+        spmpTable[i].bound = (Addr)-1;
+        spmpTable[i].flags = 0x7;
+    }
+    secLevel = 0;
+    mtstatus = 0;
+    currentTtcbPtr = 0;
 }
 
 bool
@@ -370,6 +386,9 @@ PMP::serialize(CheckpointOut &cp) const
     for (int i = 0; i < 8; i++) {
         spmpTable[i].serializeSection(cp, csprintf("SpmpEntry%d", i));
     }
+    SERIALIZE_SCALAR(secLevel);
+    SERIALIZE_SCALAR(mtstatus);
+    SERIALIZE_SCALAR(currentTtcbPtr);
 }
 void
 PMP::unserialize(CheckpointIn &cp)
@@ -390,6 +409,9 @@ PMP::unserialize(CheckpointIn &cp)
     for (int i = 0; i < 8; i++) {
         spmpTable[i].unserializeSection(cp, csprintf("SpmpEntry%d", i));
     }
+    UNSERIALIZE_SCALAR(secLevel);
+    UNSERIALIZE_SCALAR(mtstatus);
+    UNSERIALIZE_SCALAR(currentTtcbPtr);
 }
 
 } // namespace RiscvISA
