@@ -334,25 +334,52 @@ PMP::pmpUpdateAddr(uint32_t pmp_index, Addr this_addr)
 }
 
 void
-PMP::spmpUpdateBase(uint32_t spmp_index, Addr base)
+PMP::spmpUpdateBase(uint32_t spmp_index, Addr base, PrivilegeMode prv)
 {
     if (spmp_index < 8) {
+        if (prv == PrivilegeMode::PRV_S && secLevel == 0) {
+            // SN cannot overwrite an existing ST entry
+            if (spmpTable[spmp_index].flags & SPMP_ST) {
+                warn("Cannot overwrite PMP.ST entry base from SN! Ignoring.\n");
+                return;
+            }
+            // Changing base from SN automatically clears ACK
+            spmpTable[spmp_index].flags &= ~SPMP_ACK;
+        }
         spmpTable[spmp_index].base = base;
     }
 }
 
 void
-PMP::spmpUpdateBound(uint32_t spmp_index, Addr bound)
+PMP::spmpUpdateBound(uint32_t spmp_index, Addr bound, PrivilegeMode prv)
 {
     if (spmp_index < 8) {
+        if (prv == PrivilegeMode::PRV_S && secLevel == 0) {
+            // SN cannot overwrite an existing ST entry
+            if (spmpTable[spmp_index].flags & SPMP_ST) {
+                warn("Cannot overwrite PMP.ST entry bound from SN! Ignoring.\n");
+                return;
+            }
+            // Changing bound from SN automatically clears ACK
+            spmpTable[spmp_index].flags &= ~SPMP_ACK;
+        }
         spmpTable[spmp_index].bound = bound;
     }
 }
 
 void
-PMP::spmpUpdateFlags(uint32_t spmp_index, uint8_t flags)
+PMP::spmpUpdateFlags(uint32_t spmp_index, uint8_t flags, PrivilegeMode prv)
 {
     if (spmp_index < 8) {
+        if (prv == PrivilegeMode::PRV_S && secLevel == 0) {
+            // SN cannot write ST flag or overwrite existing ST entry
+            if ((flags & SPMP_ST) || (spmpTable[spmp_index].flags & SPMP_ST)) {
+                warn("Cannot (over)write PMP.ST entry from SN! Ignoring.\n");
+                return;
+            }
+            // SN automatically clears ACK
+            flags &= ~SPMP_ACK;
+        }
         spmpTable[spmp_index].flags = flags;
     }
 }

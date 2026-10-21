@@ -851,21 +851,24 @@ ISA::setMiscReg(RegIndex idx, RegVal val)
             {
                 auto mmu = dynamic_cast<RiscvISA::MMU *>(tc->getMMUPtr());
                 uint32_t spmp_index = idx - MISCREG_SPMPBASE0;
-                mmu->getPMP()->spmpUpdateBase(spmp_index, val);
-                setMiscRegNoEffect(idx, val);
+                auto prv = (PrivilegeMode)readMiscRegNoEffect(MISCREG_PRV);
+                mmu->getPMP()->spmpUpdateBase(spmp_index, val, prv);
+                setMiscRegNoEffect(idx, mmu->getPMP()->spmpGetBase(spmp_index));
             } break;
           case MISCREG_SPMPBOUND0 ... MISCREG_SPMPBOUND7:
             {
                 auto mmu = dynamic_cast<RiscvISA::MMU *>(tc->getMMUPtr());
                 uint32_t spmp_index = idx - MISCREG_SPMPBOUND0;
-                mmu->getPMP()->spmpUpdateBound(spmp_index, val);
-                setMiscRegNoEffect(idx, val);
+                auto prv = (PrivilegeMode)readMiscRegNoEffect(MISCREG_PRV);
+                mmu->getPMP()->spmpUpdateBound(spmp_index, val, prv);
+                setMiscRegNoEffect(idx, mmu->getPMP()->spmpGetBound(spmp_index));
             } break;
           case MISCREG_SPMPFLAGS0 ... MISCREG_SPMPFLAGS7:
             {
                 auto mmu = dynamic_cast<RiscvISA::MMU *>(tc->getMMUPtr());
                 uint32_t spmp_index = idx - MISCREG_SPMPFLAGS0;
-                mmu->getPMP()->spmpUpdateFlags(spmp_index, val);
+                auto prv = (PrivilegeMode)readMiscRegNoEffect(MISCREG_PRV);
+                mmu->getPMP()->spmpUpdateFlags(spmp_index, val, prv);
                 setMiscRegNoEffect(idx, mmu->getPMP()->spmpGetFlags(spmp_index));
             } break;
           case MISCREG_STTCB:

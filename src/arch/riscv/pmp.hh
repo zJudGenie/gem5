@@ -212,17 +212,20 @@ class PMP : public SimObject
     /**
      * spmpUpdateBase updates the spmpbase for a spmp entry.
      */
-    void spmpUpdateBase(uint32_t spmp_index, Addr base);
+    void spmpUpdateBase(uint32_t spmp_index, Addr base,
+                        PrivilegeMode prv = PrivilegeMode::PRV_M);
 
     /**
      * spmpUpdateBound updates the spmpbound for a spmp entry.
      */
-    void spmpUpdateBound(uint32_t spmp_index, Addr bound);
+    void spmpUpdateBound(uint32_t spmp_index, Addr bound,
+                         PrivilegeMode prv = PrivilegeMode::PRV_M);
 
     /**
      * spmpUpdateFlags updates the spmpflags for a spmp entry.
      */
-    void spmpUpdateFlags(uint32_t spmp_index, uint8_t flags);
+    void spmpUpdateFlags(uint32_t spmp_index, uint8_t flags,
+                         PrivilegeMode prv = PrivilegeMode::PRV_M);
 
     Addr spmpGetBase(uint32_t spmp_index) const
     {
