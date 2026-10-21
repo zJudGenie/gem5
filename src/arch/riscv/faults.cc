@@ -127,6 +127,22 @@ RiscvFault::invoke(ThreadContext *tc, const StaticInstPtr &inst)
             }
         }
 
+        auto mmu = dynamic_cast<RiscvISA::MMU *>(tc->getMMUPtr());
+        PMP *pmp = mmu ? mmu->getPMP() : nullptr;
+        bool in_secure = pmp && (pmp->getSecLevel() == 1);
+
+        if (pmp) {
+            pmp->notifyInterrupt(pp);
+            if (in_secure) {
+                pmp->setSecLevel(0);
+                tc->setMiscRegNoEffect(MISCREG_MTSTATUS, pmp->getMtstatus());
+                tc->setMiscRegNoEffect(MISCREG_STSTATUS, pmp->getMtstatus());
+                if (mmu) {
+                    mmu->flushAll();
+                }
+            }
+        }
+
         // Set fault registers and status
         MiscRegIndex cause, epc, tvec, tval;
         switch (prv) {
@@ -136,7 +152,7 @@ RiscvFault::invoke(ThreadContext *tc, const StaticInstPtr &inst)
           case PRV_S:
             cause = MISCREG_SCAUSE;
             epc = MISCREG_SEPC;
-            tvec = MISCREG_STVEC;
+            tvec = in_secure ? MISCREG_STTVEC : MISCREG_STVEC;
             tval = MISCREG_STVAL;
 
             status.spp = pp;
