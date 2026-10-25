@@ -79,6 +79,7 @@ PMP::trustedModeswitch(Addr paddr, PrivilegeMode pmode, uint64_t tag,
                 }
             }
             setSecLevel(1);
+            inform("Timber-V: Domain Modeswitch to TRUSTED (secLevel=1, TU-mode) @ %#x\n", paddr);
             if (tc) {
                 tc->setMiscRegNoEffect(MISCREG_MTSTATUS, getMtstatus());
                 tc->setMiscRegNoEffect(MISCREG_STSTATUS, getMtstatus());
@@ -90,6 +91,7 @@ PMP::trustedModeswitch(Addr paddr, PrivilegeMode pmode, uint64_t tag,
         }
     } else if (secLevel == 1 && tag == TIMBV_T_NORMAL) {
         setSecLevel(0);
+        inform("Timber-V: Domain Modeswitch to NORMAL (secLevel=0, UN-mode) @ %#x\n", paddr);
         if (tc) {
             tc->setMiscRegNoEffect(MISCREG_MTSTATUS, getMtstatus());
             tc->setMiscRegNoEffect(MISCREG_STSTATUS, getMtstatus());
