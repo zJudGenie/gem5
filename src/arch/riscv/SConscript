@@ -61,6 +61,7 @@ Source('pagetable_walker.cc', tags=['riscv isa'])
 Source('pma_checker.cc', tags=['riscv isa'])
 Source('pmp.cc', tags=['riscv isa'])
 Source('spmp.cc', tags=['riscv isa'])
+Source('timberv.cc', tags=['riscv isa'])
 Source('reg_abi.cc', tags=['riscv isa'])
 Source('remote_gdb.cc', tags=['riscv isa'])
 Source('semihosting.cc', tags=['riscv isa'])
@@ -79,6 +80,7 @@ SimObject(
 )
 SimObject('PMP.py', sim_objects=['PMP'], tags=['riscv isa'])
 SimObject('SPMP.py', sim_objects=['SPMP'], tags=['riscv isa'])
+SimObject('TimberV.py', sim_objects=['TimberV'], tags=['riscv isa'])
 SimObject(
     'RiscvDecoder.py',
     sim_objects=['RiscvDecoder'],
