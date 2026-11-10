@@ -459,9 +459,10 @@ TLB::doTranslate(const RequestPtr &req, ThreadContext *tc,
     return NoFault;
 }
 
+/** Resolve MPRV/NMIE for data without changing instruction-fetch privilege. */
 MemAccessInfo
 TLB::getMemAccessInfo(ThreadContext *tc, BaseMMU::Mode mode,
-        const Request::ArchFlagsType arch_flags)
+        const Request::ArchFlagsType arch_flags) const
 {
     MISA misa = tc->readMiscReg(MISCREG_ISA);
     STATUS status = tc->readMiscReg(MISCREG_STATUS);
@@ -503,6 +504,21 @@ TLB::getMemAccessInfo(ThreadContext *tc, BaseMMU::Mode mode,
     return MemAccessInfo(priv, virt, force_virt, hlvx, lr);
 }
 
+/** Consult live protection state without caching permissions in either TLB. */
+Fault
+TLB::checkSPMP(const RequestPtr &req, ThreadContext *tc,
+               BaseMMU::Mode mode) const
+{
+    const auto isa = static_cast<ISA *>(tc->getIsaPtr());
+    if (!FullSystem || !isa->enableSspmp())
+        return NoFault;
+    const auto mmu = static_cast<MMU *>(tc->getMMUPtr());
+    const auto access = getMemAccessInfo(tc, mode, req->getArchFlags());
+    return mmu->getSPMP()->spmpCheck(req, mode, access.priv, tc,
+                                   req->getPaddr());
+}
+
+/** Translate and enforce SPMP before physical access-fault/PMP/PMA checks. */
 Fault
 TLB::translate(const RequestPtr &req, ThreadContext *tc,
                BaseMMU::Translation *translation, BaseMMU::Mode mode,
@@ -553,6 +569,9 @@ TLB::translate(const RequestPtr &req, ThreadContext *tc,
                 fault = doTranslate(req, tc, translation, mode, delayed);
             }
         }
+
+        if (!delayed && fault == NoFault)
+            fault = checkSPMP(req, tc, mode);
 
         // according to the RISC-V tests, negative physical addresses trigger
         // an illegal address exception.
@@ -631,6 +650,7 @@ TLB::translateTiming(const RequestPtr &req, ThreadContext *tc,
         translation->markDelayed();
 }
 
+/** Translate a context's functional virtual access and enforce active SPMP. */
 Fault
 TLB::translateFunctional(const RequestPtr &req, ThreadContext *tc,
                          BaseMMU::Mode mode)
@@ -679,14 +699,21 @@ TLB::translateFunctional(const RequestPtr &req, ThreadContext *tc,
 
     DPRINTF(TLB, "Translated (functional) %#x -> %#x.\n", vaddr, paddr);
     req->setPaddr(paddr);
-    return NoFault;
+    // MMUTranslationGen uses this reserved ID for simulator virtual proxies
+    // (semihosting, debugger, etc.). Checker CPU requests use CPU requestor IDs
+    // and represent architectural accesses. Physical loader/DMA proxies never
+    // enter this virtual-translation interface.
+    if (req->requestorId() == Request::funcRequestorId)
+        return NoFault;
+    return checkSPMP(req, tc, mode);
 }
 
+/** Enforce SPMP for context-bound requests bypassing ordinary translation. */
 Fault
 TLB::finalizePhysical(const RequestPtr &req,
                       ThreadContext *tc, BaseMMU::Mode mode) const
 {
-    return NoFault;
+    return checkSPMP(req, tc, mode);
 }
 
 void

@@ -39,7 +39,9 @@ from m5.objects.BaseMMU import BaseMMU
 from m5.objects.PMAChecker import PMAChecker
 from m5.objects.PMP import PMP
 from m5.objects.RiscvTLB import RiscvTLB
+from m5.objects.SPMP import SPMP
 from m5.params import *
+from m5.proxy import Parent
 
 
 class RiscvMMU(BaseMMU):
@@ -51,6 +53,10 @@ class RiscvMMU(BaseMMU):
     dtb = RiscvTLB(entry_type="data")
     pma_checker = Param.BasePMAChecker(PMAChecker(), "PMA Checker")
     pmp = Param.PMP(PMP(), "Physical Memory Protection Unit")
+    spmp = Param.SPMP(
+        SPMP(riscv_type=Parent.isa[0].riscv_type),
+        "Supervisor Physical Memory Protection Unit",
+    )
 
     @classmethod
     def walkerPorts(cls):

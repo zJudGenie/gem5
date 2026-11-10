@@ -1,0 +1,6 @@
+Import('*')
+
+if env['CONF']['USE_TEST_OBJECTS']:
+    env.Append(CPPPATH=[Dir('.').srcnode()])
+    SimObject('SPMPTest.py', sim_objects=['RiscvSPMPTest'], tags=['riscv isa'])
+    Source('spmp_test.cc', tags=['riscv isa'])

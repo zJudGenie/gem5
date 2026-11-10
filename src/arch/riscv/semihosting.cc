@@ -41,6 +41,7 @@
 
 #include <cerrno>
 #include <cstdio>
+#include <map>
 
 #include "arch/riscv/isa.hh"
 #include "arch/riscv/page_size.hh"
@@ -148,14 +149,17 @@ RiscvSemihosting::call(ThreadContext *tc)
     return isa->rvType() == enums::RV32 ? call32(tc) : call64(tc);
 }
 
+/** Return a context-specific proxy so CPU switches use the active CPU port. */
 PortProxy &
 RiscvSemihosting::portProxyImpl(ThreadContext *tc)
 {
-    static std::unique_ptr<PortProxy> port_proxy([=]() {
-        return FullSystem ? new TranslatingPortProxy(tc) :
-                            new SETranslatingPortProxy(tc);
-    }());
-    return *port_proxy;
+    static std::map<ThreadContext *, std::unique_ptr<PortProxy>> proxies;
+    auto &proxy = proxies[tc];
+    if (!proxy) {
+        proxy.reset(FullSystem ? new TranslatingPortProxy(tc) :
+                                new SETranslatingPortProxy(tc));
+    }
+    return *proxy;
 }
 
 bool

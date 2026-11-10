@@ -43,8 +43,10 @@
 #include "arch/riscv/page_size.hh"
 #include "arch/riscv/pma_checker.hh"
 #include "arch/riscv/pmp.hh"
+#include "arch/riscv/spmp.hh"
 #include "arch/riscv/tlb.hh"
 
+#include "base/logging.hh"
 #include "params/RiscvMMU.hh"
 
 namespace gem5
@@ -54,18 +56,28 @@ namespace RiscvISA {
 
 class MMU : public BaseMMU
 {
+  private:
+    SPMP *spmp;
+    bool spmpProfileBound = false;
+    bool spmpEnabled = false;
+    RiscvType spmpRvType;
+    PrivilegeModeSet spmpPrivilegeSet;
+
   public:
     BasePMAChecker *pma;
 
+    /** Bind the protection units owned by this MMU. */
     MMU(const RiscvMMUParams &p)
-      : BaseMMU(p), pma(p.pma_checker)
+      : BaseMMU(p), spmp(p.spmp), pma(p.pma_checker)
     {}
 
+    /** Reset protection configuration while retaining backend reset policy. */
     void
     reset() override
     {
         // Reset PMP Cfg
         getPMP()->pmpReset();
+        getSPMP()->spmpReset();
     }
 
     Addr
@@ -98,19 +110,54 @@ class MMU : public BaseMMU
         return static_cast<TLB*>(dtb)->getWalker();
     }
 
+    /** Transfer SPMP and retain existing PMA/base-MMU takeover behavior. */
     void
     takeOverFrom(BaseMMU *old_mmu) override
     {
-      MMU *ommu = dynamic_cast<MMU*>(old_mmu);
-      BaseMMU::takeOverFrom(ommu);
-      pma->takeOverFrom(ommu->pma);
-
+        MMU *ommu = dynamic_cast<MMU*>(old_mmu);
+        fatal_if(!ommu, "Cannot take over from a non-RISC-V MMU");
+        validateTakeOverFrom(ommu);
+        spmp->takeOverFrom(*ommu->spmp);
+        BaseMMU::takeOverFrom(ommu);
+        pma->takeOverFrom(ommu->pma);
     }
 
     PMP *
     getPMP()
     {
         return static_cast<TLB*>(dtb)->pmp;
+    }
+
+    /** Return the shared backend for supervisor indirect CSR programming. */
+    SPMP *getSPMP() const { return spmp; }
+
+    /** Bind the first hart profile and reject inconsistent shared-MMU users. */
+    void
+    bindSPMPProfile(bool enabled, RiscvType rv_type,
+                    PrivilegeModeSet privilege_set)
+    {
+        fatal_if(spmpProfileBound &&
+                 (spmpEnabled != enabled || spmpRvType != rv_type ||
+                  spmpPrivilegeSet != privilege_set),
+                 "RISC-V harts sharing an MMU must have matching SPMP "
+                 "feature, XLEN, and privilege profiles");
+        spmpProfileBound = true;
+        spmpEnabled = enabled;
+        spmpRvType = rv_type;
+        spmpPrivilegeSet = privilege_set;
+    }
+
+    /** Validate profile compatibility before copying CPU architectural state. */
+    void
+    validateTakeOverFrom(const MMU *old_mmu) const
+    {
+        fatal_if(!old_mmu || !spmpProfileBound || !old_mmu->spmpProfileBound ||
+                 spmpEnabled != old_mmu->spmpEnabled ||
+                 spmpRvType != old_mmu->spmpRvType ||
+                 spmpPrivilegeSet != old_mmu->spmpPrivilegeSet ||
+                 spmp->getNumEntries() != old_mmu->spmp->getNumEntries(),
+                 "Cannot switch CPUs with incompatible SPMP feature, XLEN, "
+                 "privilege profile, or entry count");
     }
 
     /*

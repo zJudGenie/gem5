@@ -125,10 +125,16 @@ class ISA : public BaseISA
      */
     bool _enableSmrnmi;
 
+    /** Enable supervisor physical memory protection. */
+    const bool _enableSspmp;
+
   public:
     using Params = RiscvISAParams;
 
     void clear() override;
+
+    /** Attach the hart context and validate the SPMP architecture setting. */
+    void setThreadContext(ThreadContext *_tc) override;
 
     PCStateBase*
     newPCState(Addr new_inst_addr=0) const override
@@ -210,6 +216,9 @@ class ISA : public BaseISA
 
     bool enableSmrnmi() { return _enableSmrnmi; }
 
+    /** Return whether SPMP enforcement and its CSR allocation are enabled. */
+    bool enableSspmp() const { return _enableSspmp; }
+
     virtual Addr getFaultHandlerAddr(
         RegIndex idx, uint64_t cause, bool intr) const;
 
@@ -222,6 +231,9 @@ class ISA : public BaseISA
 
     Fault hpmCounterCheck(int counter, ExtMachInst machInst) const;
     Fault tvmChecks(uint64_t csr, PrivilegeMode pm, ExtMachInst machInst);
+
+    /** Check supervisor indirect CSR legality before accessing any state. */
+    Fault indirectCSRCheck(uint64_t csr, ExtMachInst machInst) const;
 
     RegVal backdoorReadCSRAllBits(ExecContext *xc, uint64_t csr);
     RegVal readCSR(ExecContext *xc, uint64_t csr);

@@ -323,6 +323,7 @@ def template JumpExecute {{
 }};
 
 def template CSRExecute {{
+    /** Execute a CSR access after privilege and indirect-window checks. */
     Fault
     %(class_name)s::execute(ExecContext *xc,
         trace::InstRecord *traceData) const
@@ -396,6 +397,10 @@ def template CSRExecute {{
                     machInst);
             }
         }
+
+        Fault indirect_fault = isa->indirectCSRCheck(csr, machInst);
+        if (indirect_fault != NoFault)
+            return indirect_fault;
 
         // trick to get rid of const
         // so we can do swap if needed

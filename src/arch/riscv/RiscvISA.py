@@ -128,6 +128,7 @@ class RiscvISA(BaseISA):
     enable_Smrnmi = Param.Bool(
         False, "Resumable non-maskable interrupt in FS mode"
     )
+    enable_Sspmp = Param.Bool(False, "Enable S-level physical memory protection")
 
     wfi_resume_on_pending = Param.Bool(
         False,
@@ -140,6 +141,7 @@ class RiscvISA(BaseISA):
     )
 
     def get_isa_string(self):
+        """Return the implemented ISA extensions for this hart's profile."""
         isa_extensions = []
         # check for the base ISA type
         if self.riscv_type.value == "RV32":
@@ -171,5 +173,16 @@ class RiscvISA(BaseISA):
         isa_string += "_Zbb"  # Basic Bit Manipulation
         isa_string += "_Zbs"  # Single-bit Instructions
         isa_string += "_svnapot"
+
+        if self.privilege_mode_set.value == "MSU":
+            isa_string += "_Sscsrind"
+            if self.enable_Sspmp.value:
+                mmu = self._parent.mmu
+                if mmu.spmp.spmp_entries.value > 0:
+                    isa_string += "_Sspmp"
+        elif self.enable_Sspmp.value:
+            raise ValueError(
+                "Sspmp requires the non-virtualized MSU privilege profile"
+            )
 
         return isa_string

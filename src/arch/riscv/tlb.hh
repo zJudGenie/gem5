@@ -144,8 +144,9 @@ class TLB : public BaseTLB
     Fault createPagefault(Addr vaddr, BaseMMU::Mode mode, Addr gvaddr = 0x0,
                           bool gpf = false, bool virt = false);
 
+    /** Resolve effective privilege and architectural request modifiers. */
     MemAccessInfo getMemAccessInfo(ThreadContext *tc, BaseMMU::Mode mode,
-                                  const Request::ArchFlagsType arch_flags);
+                                  Request::ArchFlagsType arch_flags) const;
 
     // Checkpointing
     void serialize(CheckpointOut &cp) const override;
@@ -208,6 +209,10 @@ class TLB : public BaseTLB
 
     void evictLRU();
     void remove(size_t idx);
+
+    /** Check the shared SPMP backend for a full-system architectural access. */
+    Fault checkSPMP(const RequestPtr &req, ThreadContext *tc,
+                    BaseMMU::Mode mode) const;
 
     Fault translate(const RequestPtr &req, ThreadContext *tc,
                     BaseMMU::Translation *translation, BaseMMU::Mode mode,

@@ -316,6 +316,14 @@ const std::array<const char *, NUM_MISCREGS> MiscRegNames = {{
 
     [MISCREG_JVT] = "JVT",
 
+    [MISCREG_SISELECT]      = "SISELECT",
+    [MISCREG_SIREG]         = "SIREG",
+    [MISCREG_SIREG2]        = "SIREG2",
+    [MISCREG_SIREG3]        = "SIREG3",
+    [MISCREG_SIREG4]        = "SIREG4",
+    [MISCREG_SIREG5]        = "SIREG5",
+    [MISCREG_SIREG6]        = "SIREG6",
+
     [MISCREG_FFLAGS_EXE]    = "FFLAGS_EXE",
 }};
 
@@ -335,8 +343,10 @@ ISA::ISA(const Params &p) : BaseISA(p, "riscv"),
     _rvType(p.riscv_type), enableRvv(p.enable_rvv), vlen(p.vlen), elen(p.elen),
     _privilegeModeSet(p.privilege_mode_set),
     _wfiResumeOnPending(p.wfi_resume_on_pending), _enableZcd(p.enable_Zcd),
-    _enableSmrnmi(p.enable_Smrnmi)
+    _enableSmrnmi(p.enable_Smrnmi), _enableSspmp(p.enable_Sspmp)
 {
+    fatal_if(_enableSspmp && _privilegeModeSet != enums::MSU,
+             "Sspmp requires the non-virtualized MSU privilege profile");
     _regClasses.push_back(&intRegClass);
     _regClasses.push_back(&floatRegClass);
     _regClasses.push_back(&vecRegClass);
@@ -357,14 +367,32 @@ ISA::ISA(const Params &p) : BaseISA(p, "riscv"),
     clear();
 }
 
+/** Attach a context only when its SPMP backend matches the hart profile. */
+void
+ISA::setThreadContext(ThreadContext *_tc)
+{
+    BaseISA::setThreadContext(_tc);
+    auto mmu = static_cast<MMU *>(tc->getMMUPtr());
+    const auto spmp = mmu->getSPMP();
+    fatal_if(spmp->params().riscv_type != _rvType,
+             "SPMP architecture must match the hart's RISC-V type");
+    mmu->bindSPMPProfile(_enableSspmp, _rvType, _privilegeModeSet);
+}
+
 bool ISA::inUserMode() const
 {
     return miscRegFile[MISCREG_PRV] == PRV_U;
 }
 
+/** Copy architectural registers after checking source and destination profiles. */
 void
 ISA::copyRegsFrom(ThreadContext *src)
 {
+    // Validate protection compatibility before copying any architectural state.
+    auto dstMmu = static_cast<MMU *>(tc->getMMUPtr());
+    auto srcMmu = static_cast<MMU *>(src->getMMUPtr());
+    dstMmu->validateTakeOverFrom(srcMmu);
+
     // First loop through the integer registers.
     for (auto &id: intRegClass)
         tc->setReg(id, src->getReg(id));
@@ -530,10 +558,34 @@ ISA::readMiscRegNoEffect(RegIndex idx) const
     return miscRegFile[idx];
 }
 
+/** Read architectural misc state, resolving indirect aliases in the backend. */
 RegVal
 ISA::readMiscReg(RegIndex idx)
 {
     switch (idx) {
+      case MISCREG_SIREG:
+      case MISCREG_SIREG2:
+        {
+            if (!_enableSspmp)
+                return 0;
+            const RegVal selector = readMiscRegNoEffect(MISCREG_SISELECT);
+            if (selector < 0x100 || selector > 0x13f)
+                return 0;
+            const auto spmp = static_cast<MMU *>(tc->getMMUPtr())->getSPMP();
+            const uint32_t entry = selector - 0x100;
+            if (entry >= spmp->getNumEntries())
+                return 0;
+            const RegVal val = idx == MISCREG_SIREG ?
+                spmp->getAddr(entry) : spmp->getCfg(entry);
+            return tc->pcState().as<PCState>().rvType() == RV32 ?
+                bits(val, 31, 0) : val;
+        }
+      case MISCREG_SIREG3:
+      case MISCREG_SIREG4:
+      case MISCREG_SIREG5:
+      case MISCREG_SIREG6:
+        // Instruction accesses fault in indirectCSRCheck before reaching here.
+        return 0;
       case MISCREG_HARTID:
         return tc->contextId();
       case MISCREG_CYCLE:
@@ -773,6 +825,7 @@ ISA::setMiscRegNoEffect(RegIndex idx, RegVal val)
     miscRegFile[idx] = val;
 }
 
+/** Write architectural misc state, delegating indirect WARL and lock handling. */
 void
 ISA::setMiscReg(RegIndex idx, RegVal val)
 {
@@ -781,6 +834,34 @@ ISA::setMiscReg(RegIndex idx, RegVal val)
         warn("Ignoring write to miscreg %s.\n", MiscRegNames[idx]);
     } else {
         switch (idx) {
+          case MISCREG_SISELECT:
+            setMiscRegNoEffect(idx, bits(val, 11, 0));
+            break;
+          case MISCREG_SIREG:
+          case MISCREG_SIREG2:
+            {
+                if (!_enableSspmp)
+                    break;
+                const RegVal selector = readMiscRegNoEffect(MISCREG_SISELECT);
+                if (selector < 0x100 || selector > 0x13f)
+                    break;
+                auto spmp = static_cast<MMU *>(tc->getMMUPtr())->getSPMP();
+                const uint32_t entry = selector - 0x100;
+                if (entry >= spmp->getNumEntries())
+                    break;
+                if (tc->pcState().as<PCState>().rvType() == RV32)
+                    val = bits(val, 31, 0);
+                if (idx == MISCREG_SIREG)
+                    spmp->spmpUpdateAddr(entry, val);
+                else
+                    spmp->spmpUpdateCfg(entry, val);
+            }
+            break;
+          case MISCREG_SIREG3:
+          case MISCREG_SIREG4:
+          case MISCREG_SIREG5:
+          case MISCREG_SIREG6:
+            break;
 
           // From section 3.7.1 of RISCV priv. specs
           // V1.12, the odd-numbered configuration
@@ -949,6 +1030,13 @@ ISA::setMiscReg(RegIndex idx, RegVal val)
             break;
           case MISCREG_SATP:
             {
+                // The walker implements Sv39, not Sv32. Keep enabled RV32
+                // harts Bare: treating bit 31 as an RV64 PPN bit here while
+                // SPMP sees a mode bit would let software evade protection.
+                if (_enableSspmp && _rvType == RV32) {
+                    setMiscRegNoEffect(idx, 0);
+                    break;
+                }
                 // we only support bare and Sv39 mode; setting a different mode
                 // shall have no effect (see 4.1.12 in priv ISA manual)
                 SATP cur_val = readMiscRegNoEffect(idx);
@@ -1050,6 +1138,8 @@ ISA::setMiscReg(RegIndex idx, RegVal val)
                 }
                 new_misa.rvs = cur_misa.rvs;
                 new_misa.rvu = cur_misa.rvu;
+                if (_enableSspmp)
+                    new_misa.rvh = 0;
                 setMiscRegNoEffect(idx, new_misa);
             }
             break;
@@ -1132,6 +1222,7 @@ ISA::setMiscReg(RegIndex idx, RegVal val)
     }
 }
 
+/** Serialize architectural state and the feature profile that interprets it. */
 void
 ISA::serialize(CheckpointOut &cp) const
 {
@@ -1139,13 +1230,52 @@ ISA::serialize(CheckpointOut &cp) const
 
     DPRINTF(Checkpoint, "Serializing Riscv Misc Registers\n");
     SERIALIZE_CONTAINER(miscRegFile);
+    int cptSspmpEnabled = _enableSspmp;
+    int cptSspmpRvType = _rvType;
+    int cptSspmpPrivilegeSet = _privilegeModeSet;
+    SERIALIZE_SCALAR(cptSspmpEnabled);
+    SERIALIZE_SCALAR(cptSspmpRvType);
+    SERIALIZE_SCALAR(cptSspmpPrivilegeSet);
 }
 
+/** Restore architectural state only when its feature profile is compatible. */
 void
 ISA::unserialize(CheckpointIn &cp)
 {
     DPRINTF(Checkpoint, "Unserializing Riscv Misc Registers\n");
     UNSERIALIZE_CONTAINER(miscRegFile);
+    int cptSspmpEnabled = 0;
+    int cptSspmpRvType = 0;
+    int cptSspmpPrivilegeSet = 0;
+    const bool hasEnabled = optParamIn(cp, "cptSspmpEnabled", cptSspmpEnabled,
+                                       false);
+    const bool hasRvType = optParamIn(cp, "cptSspmpRvType", cptSspmpRvType,
+                                      false);
+    const bool hasPrivilegeSet = optParamIn(
+        cp, "cptSspmpPrivilegeSet", cptSspmpPrivilegeSet, false);
+    fatal_if(hasEnabled != hasRvType || hasRvType != hasPrivilegeSet,
+             "Incomplete SPMP ISA configuration in checkpoint");
+    if (!hasEnabled) {
+        fatal_if(_enableSspmp,
+                 "Legacy checkpoint has no SPMP ISA metadata; restore "
+                 "requires Sspmp disabled");
+        warn("Restoring legacy RISC-V checkpoint without SPMP ISA metadata");
+    } else {
+        fatal_if((cptSspmpEnabled != 0) != _enableSspmp ||
+                 cptSspmpRvType != static_cast<int>(_rvType) ||
+                 cptSspmpPrivilegeSet != static_cast<int>(_privilegeModeSet),
+                 "SPMP feature, XLEN, or privilege profile differs from "
+                 "checkpoint");
+    }
+    if (_enableSspmp) {
+        const MISA misa = miscRegFile[MISCREG_ISA];
+        fatal_if(!misa.rvs || !misa.rvu || misa.rvh,
+                 "Checkpoint MISA is incompatible with the enabled MSU "
+                 "Sspmp profile");
+        fatal_if(_rvType == RV32 && miscRegFile[MISCREG_SATP] != 0,
+                 "Enabled RV32 Sspmp requires Bare SATP; this walker "
+                 "does not implement Sv32");
+    }
 }
 
 void
@@ -1228,9 +1358,11 @@ ISA::globalClearExclusive()
     load_reservation_addr = INVALID_RESERVATION_ADDR;
 }
 
+/** Reset the indirect selector along with the hart's architectural reset. */
 void
 ISA::resetThread()
 {
+    setMiscRegNoEffect(MISCREG_SISELECT, 0);
     Reset().invoke(tc);
 }
 
@@ -1295,6 +1427,47 @@ ISA::tvmChecks(uint64_t csr, PrivilegeMode pm, ExtMachInst machInst)
     }
 
 
+    return NoFault;
+}
+
+/** Reject unsupported selections and guest access to the host indirect bank. */
+Fault
+ISA::indirectCSRCheck(uint64_t csr, ExtMachInst machInst) const
+{
+    switch (csr) {
+      case CSR_SISELECT:
+      case CSR_SIREG:
+      case CSR_SIREG2:
+      case CSR_SIREG3:
+      case CSR_SIREG4:
+      case CSR_SIREG5:
+      case CSR_SIREG6:
+        break;
+      default:
+        return NoFault;
+    }
+
+    // Guest indirect CSRs are deferred; never fall through to the host bank.
+    if (virtualizationEnabled()) {
+        return std::make_shared<VirtualInstFault>(
+            "Guest supervisor indirect CSRs are not implemented", machInst);
+    }
+    if (csr == CSR_SISELECT)
+        return NoFault;
+
+    if (csr != CSR_SIREG && csr != CSR_SIREG2) {
+        return std::make_shared<IllegalInstFault>(
+            "Reserved supervisor indirect CSR alias", machInst);
+    }
+    const RegVal selector = readMiscRegNoEffect(MISCREG_SISELECT);
+    if (selector < 0x100 || selector > 0x13f) {
+        return std::make_shared<IllegalInstFault>(
+            "Unsupported supervisor indirect CSR selection", machInst);
+    }
+    if (!_enableSspmp) {
+        return std::make_shared<IllegalInstFault>(
+            "SPMP indirect CSRs require Sspmp to be enabled", machInst);
+    }
     return NoFault;
 }
 

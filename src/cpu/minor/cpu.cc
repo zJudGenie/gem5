@@ -150,12 +150,16 @@ MinorCPU::wakeup(ThreadID tid)
     }
 }
 
+/** Start fetching only for an active CPU with registered thread contexts. */
 void
 MinorCPU::startup()
 {
     DPRINTF(MinorCPU, "MinorCPU startup\n");
 
     BaseCPU::startup();
+
+    if (switchedOut())
+        return;
 
     for (ThreadID tid = 0; tid < numThreads; tid++)
         pipeline->wakeupFetch(tid);
