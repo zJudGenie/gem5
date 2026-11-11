@@ -18,6 +18,8 @@ namespace gem5
 namespace RiscvISA
 {
 
+class PMP;
+
 /**
 * This class helps to implement RISCV's s-mode physical memory
 * protection (sPMP) primitive.
@@ -32,6 +34,10 @@ class SPMP : public SimObject
   private:
     /** maximum number of entries in the sPMP table */
     int spmpEntries;
+    PMP *pmp = nullptr;
+    bool enableMask = false;
+    bool delegation = false;
+    uint64_t spmpEnable = 0;
 
     /** address mask for 32 and 64 bit support */
     const Addr addrMask;
@@ -105,14 +111,22 @@ class SPMP : public SimObject
     std::vector<SpmpEntry> spmpTable;
 
   public:
-      /** Return the number of implemented SPMP entries. */
-      uint32_t getNumEntries() const { return spmpEntries; }
+      /** Bind the shared PMP owner and the enabled SPMP extensions. */
+      void bindExtensions(PMP *owner, bool enable_mask, bool delegate);
+      /** Return the current logical SPMP entry count. */
+      uint32_t getNumEntries() const;
+      /** Return the configured SPMP capacity. */
+      uint32_t getCapacity() const;
 
       /** Read the canonical address of an implemented entry. */
-      Addr getAddr(uint32_t index) const { return spmpTable[index].rawAddr; }
+      Addr getAddr(uint32_t index) const;
 
       /** Read the complete canonical configuration of an implemented entry. */
-      uint64_t getCfg(uint32_t index) const { return spmpTable[index].spmpCfg; }
+      uint64_t getCfg(uint32_t index) const;
+      /** Return the currently visible enable bits. */
+      uint64_t getEnable() const;
+      /** Update unlocked visible bits, retaining hidden values. */
+      void setEnable(uint64_t value, uint64_t mask = ~uint64_t{0});
 
       /**
        * spmpCheck checks if a particular memory access
@@ -136,7 +150,8 @@ class SPMP : public SimObject
        * @param this_cfg value to be written to spmpcfg.
        * @returns true if update spmpicfg success
        */
-      bool spmpUpdateCfg(uint32_t spmp_index, uint64_t this_cfg);
+      bool spmpUpdateCfg(uint32_t spmp_index, uint64_t this_cfg,
+                         bool machine_bank = false);
 
       /**
        * spmpUpdateAddr updates the spmpaddr for a spmp
@@ -146,7 +161,8 @@ class SPMP : public SimObject
        * @param this_addr value to be written to spmpaddr.
        * @returns true if update spmpaddri success
        */
-      bool spmpUpdateAddr(uint32_t spmp_index, Addr this_addr);
+      bool spmpUpdateAddr(uint32_t spmp_index, Addr this_addr,
+                          bool machine_bank = false);
 
       /**
        * spmpReset reset when reset signal in trigger from
@@ -189,6 +205,8 @@ class SPMP : public SimObject
        * @param spmp_index spmp entry index.
        */
       void spmpUpdateRule(uint32_t spmp_index);
+      /** Decode the current logical entry range from canonical raw state. */
+      AddrRange getRange(uint32_t spmp_index) const;
 
       /**
        * spmpGetAField extracts the A field (address matching mode)
@@ -196,7 +214,7 @@ class SPMP : public SimObject
        * @param cfg spmpcfg register value.
        * @return The A field.
        */
-      inline uint8_t spmpGetAField(uint64_t cfg);
+      static inline uint8_t spmpGetAField(uint64_t cfg);
 
       /**
        * This function decodes a spmpaddr register value
@@ -206,7 +224,7 @@ class SPMP : public SimObject
        * @param spmpaddr input address from a spmp entry.
        * @return an address range.
        */
-      inline AddrRange spmpDecodeNapot(Addr spmpaddr);
+      inline AddrRange spmpDecodeNapot(Addr spmpaddr) const;
 
       void serialize(CheckpointOut &cp) const override;
       void unserialize(CheckpointIn &cp) override;

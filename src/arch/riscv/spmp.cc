@@ -2,6 +2,7 @@
 
 #include "arch/riscv/faults.hh"
 #include "arch/riscv/pagetable.hh"
+#include "arch/riscv/pmp.hh"
 #include "arch/riscv/regs/misc.hh"
 #include "base/bitfield.hh"
 #include "base/logging.hh"
@@ -18,14 +19,96 @@ namespace RiscvISA
 SPMP::SPMP(const Params &params)
     : SimObject(params),
       spmpEntries(params.spmp_entries),
+      delegation(params.delegation_enabled),
       addrMask(params.riscv_type == RV64
           ? (Addr{1} << 54) - 1 : (Addr{1} << 32) - 1),
       numRules(0)
 {
-    fatal_if(spmpEntries < 0 || spmpEntries > 64,
+    fatal_if(!delegation && (spmpEntries < 0 || spmpEntries > 64),
              "SPMP supports between zero and 64 entries, got %d",
              spmpEntries);
-    spmpTable.resize(spmpEntries);
+    if (!delegation)
+        spmpTable.resize(spmpEntries);
+}
+
+/** Bind this SPMP view to its canonical PMP storage owner. */
+void
+SPMP::bindExtensions(PMP *owner, bool enable_mask, bool delegate)
+{
+    pmp = owner;
+    enableMask = enable_mask;
+    fatal_if(delegation != delegate,
+             "SPMP configured delegation mode differs from the hart profile");
+    delegation = delegate;
+    if (pmp)
+        pmp->bindDelegation(delegate);
+}
+
+/** Return the live number of logical SPMP entries. */
+uint32_t
+SPMP::getNumEntries() const
+{
+    return delegation && pmp ? pmp->getCapacity() - pmp->getPartition() :
+        spmpEntries;
+}
+
+/** Return the backing capacity for this SPMP profile. */
+uint32_t
+SPMP::getCapacity() const
+{
+    return delegation && pmp ? pmp->getCapacity() : spmpEntries;
+}
+
+/** Read a canonical SPMP address, returning zero for hidden indices. */
+Addr
+SPMP::getAddr(uint32_t index) const
+{
+    if (index >= getNumEntries())
+        return 0;
+    // The selected platform interpretation maps logical SPMP indices onto
+    // the physical suffix beginning at pmpnum; resizing can remap survivors.
+    return delegation ? pmp->sharedAddr(pmp->getPartition() + index) :
+        spmpTable[index].rawAddr;
+}
+
+/** Read a canonical SPMP configuration, returning zero for hidden indices. */
+uint64_t
+SPMP::getCfg(uint32_t index) const
+{
+    if (index >= getNumEntries())
+        return 0;
+    return delegation ? pmp->sharedCfg(pmp->getPartition() + index) :
+        spmpTable[index].spmpCfg;
+}
+
+/** Return only enable bits within the live logical SPMP range. */
+uint64_t
+SPMP::getEnable() const
+{
+    if (delegation)
+        return pmp->getSpmpEnable();
+    const uint32_t count = getNumEntries();
+    const uint64_t visible = count == 64 ? ~uint64_t{0} :
+        (count == 0 ? 0 : (uint64_t{1} << count) - 1);
+    return spmpEnable & visible;
+}
+
+/** Apply visible enable writes while respecting mapped entry locks. */
+void
+SPMP::setEnable(uint64_t value, uint64_t mask)
+{
+    if (delegation) {
+        pmp->setSpmpEnable(value, mask);
+        return;
+    }
+    const uint32_t count = getNumEntries();
+    const uint64_t visible = count == 64 ? ~uint64_t{0} :
+        (count == 0 ? 0 : (uint64_t{1} << count) - 1);
+    uint64_t writable = visible & mask;
+    for (uint32_t i = 0; i < count; ++i)
+        if (getCfg(i) & SPMP_LOCK)
+            writable &= ~(uint64_t{1} << i);
+    spmpEnable = (spmpEnable & ~writable) | (value & writable);
 }
 
 /** Check one physical access against the first overlapping SPMP entry. */
@@ -33,7 +116,8 @@ Fault
 SPMP::spmpCheck(const RequestPtr &req, BaseMMU::Mode mode,
                 PrivilegeMode pmode, ThreadContext *tc, Addr vaddr)
 {
-    if (pmode == PrivilegeMode::PRV_M || spmpEntries == 0)
+    const uint32_t count = getNumEntries();
+    if (pmode == PrivilegeMode::PRV_M || count == 0)
         return NoFault;
 
     const RegVal satp = tc->readMiscRegNoEffect(MISCREG_SATP);
@@ -59,10 +143,13 @@ SPMP::spmpCheck(const RequestPtr &req, BaseMMU::Mode mode,
 
     DPRINTF(SPMP, "Checking SPMP permissions for pa=%#x size=%#x\n",
             paddr, size);
-    for (uint32_t i = 0; i < spmpEntries; ++i) {
-        const SpmpEntry &entry = spmpTable[i];
-        const uint8_t a = spmpGetAField(entry.spmpCfg);
-        const AddrRange &range = entry.spmpAddr;
+    const uint64_t enabled = getEnable();
+    for (uint32_t i = 0; i < count; ++i) {
+        const uint64_t cfg = getCfg(i);
+        if (enableMask && !(enabled & (uint64_t{1} << i)))
+            continue;
+        const uint8_t a = spmpGetAField(cfg);
+        const AddrRange range = getRange(i);
         if (a == SPMP_OFF || !range.valid() || range.start() >= range.end())
             continue;
 
@@ -72,7 +159,6 @@ SPMP::spmpCheck(const RequestPtr &req, BaseMMU::Mode mode,
         if (paddr < range.start() || last >= range.end())
             return createAddrfault(faultVaddr, mode);
 
-        const uint64_t cfg = entry.spmpCfg;
         const bool userRule = (cfg & SPMP_USER) != 0;
         const bool shared = (cfg & SPMP_SHARED) != 0;
         const uint64_t rwx = cfg & (SPMP_READ | SPMP_WRITE | SPMP_EXEC);
@@ -125,7 +211,7 @@ Fault
 SPMP::createDefaultFault(const RequestPtr &req, BaseMMU::Mode mode,
                          PrivilegeMode pmode, Addr vaddr)
 {
-    if (pmode == PrivilegeMode::PRV_M || spmpEntries == 0)
+    if (pmode == PrivilegeMode::PRV_M || getNumEntries() == 0)
         return NoFault;
     const Addr faultVaddr = req->hasVaddr() ? req->getVaddr() : vaddr;
     return createAddrfault(faultVaddr, mode);
@@ -140,7 +226,7 @@ SPMP::spmpGetAField(uint64_t cfg)
 
 /** Decode a masked NAPOT address into a range clipped to physical space. */
 inline AddrRange
-SPMP::spmpDecodeNapot(Addr spmpaddr)
+SPMP::spmpDecodeNapot(Addr spmpaddr) const
 {
     spmpaddr &= addrMask;
     const Addr physLimit = (addrMask + 1) << 2;
@@ -156,17 +242,30 @@ SPMP::spmpDecodeNapot(Addr spmpaddr)
 
 /** Canonicalize an accepted configuration and refresh its derived ranges. */
 bool
-SPMP::spmpUpdateCfg(uint32_t spmp_index, uint64_t this_cfg)
+SPMP::spmpUpdateCfg(uint32_t spmp_index, uint64_t this_cfg, bool machine_bank)
 {
-    if (spmp_index >= static_cast<uint32_t>(spmpEntries)) {
-        DPRINTF(SPMP, "Cannot update configuration: index %u exceeds %d entries\n",
-                spmp_index, spmpEntries);
+    if (spmp_index >= getNumEntries()) {
+        DPRINTF(SPMP, "Cannot update configuration: "
+                "index %u exceeds %d entries\n",
+                spmp_index, getCapacity());
         return false;
     }
 
+    const uint64_t old_cfg = getCfg(spmp_index);
+    if (delegation && pmp) {
+        const uint64_t defined = 0x9f | SPMP_USER | SPMP_SHARED;
+        this_cfg &= defined;
+        if (!(this_cfg & SPMP_READ))
+            this_cfg &= ~SPMP_WRITE;
+        if (!(this_cfg & SPMP_USER))
+            this_cfg &= ~SPMP_SHARED;
+        return pmp->updateSharedCfg(pmp->getPartition() + spmp_index,
+                                    this_cfg, machine_bank);
+    }
     SpmpEntry &entry = spmpTable[spmp_index];
-    if (entry.spmpCfg & SPMP_LOCK) {
-        DPRINTF(SPMP, "Cannot update locked entry %u configuration\n", spmp_index);
+    if ((old_cfg & SPMP_LOCK) && !machine_bank) {
+        DPRINTF(SPMP, "Cannot update locked entry %u configuration\n",
+                spmp_index);
         return false;
     }
 
@@ -189,6 +288,8 @@ SPMP::spmpUpdateCfg(uint32_t spmp_index, uint64_t this_cfg)
 void
 SPMP::spmpUpdateRule(uint32_t spmp_index)
 {
+    if (delegation)
+        return;
     const Addr raw = spmpTable[spmp_index].rawAddr & addrMask;
     const Addr previous = spmp_index == 0 ? 0 :
         (spmpTable[spmp_index - 1].rawAddr & addrMask);
@@ -223,35 +324,68 @@ SPMP::spmpUpdateRule(uint32_t spmp_index)
     }
 }
 
-/** Reset A and L while retaining the remaining configuration and addresses. */
+/** Decode a range using the logical predecessor in the current partition. */
+AddrRange
+SPMP::getRange(uint32_t spmp_index) const
+{
+    if (!delegation)
+        return spmpTable[spmp_index].spmpAddr;
+    const uint64_t cfg = getCfg(spmp_index);
+    const Addr raw = getAddr(spmp_index) & addrMask;
+    const Addr previous = spmp_index == 0 ? 0 :
+        (getAddr(spmp_index - 1) & addrMask);
+    switch (spmpGetAField(cfg)) {
+      case SPMP_OFF: return AddrRange(0, 0);
+      case SPMP_TOR: {
+        const Addr start = previous << 2;
+        return AddrRange(start, raw <= previous ? start : raw << 2);
+      }
+      case SPMP_NA4: return AddrRange(raw << 2, (raw << 2) + 4);
+      case SPMP_NAPOT: return spmpDecodeNapot(raw);
+      default: return AddrRange(0, 0);
+    }
+}
+
+/**
+ * Reset standalone A/L and enable state, retaining addresses and other fields.
+ * In delegation mode the MMU resets all canonical shared state through PMP.
+ */
 void
 SPMP::spmpReset()
 {
+    if (!delegation)
+        spmpEnable = 0;
     for (SpmpEntry &entry : spmpTable)
         entry.spmpCfg &= ~(SPMP_A_MASK | SPMP_LOCK);
-    for (uint32_t i = 0; i < static_cast<uint32_t>(spmpEntries); ++i)
-        spmpUpdateRule(i);
+    if (!delegation) {
+        for (uint32_t i = 0; i < static_cast<uint32_t>(spmpEntries); ++i)
+            spmpUpdateRule(i);
+    }
 }
 
 /** Apply the entry and successor TOR locks before storing a masked address. */
 bool
-SPMP::spmpUpdateAddr(uint32_t spmp_index, Addr this_addr)
+SPMP::spmpUpdateAddr(uint32_t spmp_index, Addr this_addr, bool machine_bank)
 {
-    if (spmp_index >= static_cast<uint32_t>(spmpEntries)) {
+    if (spmp_index >= getNumEntries()) {
         DPRINTF(SPMP, "Cannot update address: index %u exceeds %d entries\n",
-                spmp_index, spmpEntries);
+                spmp_index, getCapacity());
         return false;
     }
 
-    if (spmpTable[spmp_index].spmpCfg & SPMP_LOCK)
-        return false;
-    const uint32_t next = spmp_index + 1;
-    if (next < static_cast<uint32_t>(spmpEntries) &&
-        (spmpTable[next].spmpCfg & SPMP_LOCK) &&
-        spmpGetAField(spmpTable[next].spmpCfg) == SPMP_TOR) {
-        return false;
+    if (!machine_bank) {
+        if (getCfg(spmp_index) & SPMP_LOCK)
+            return false;
+        const uint32_t next = spmp_index + 1;
+        if (next < getNumEntries() &&
+            (getCfg(next) & SPMP_LOCK) &&
+            spmpGetAField(getCfg(next)) == SPMP_TOR) {
+            return false;
+        }
     }
-
+    if (delegation)
+        return pmp->updateSharedAddr(pmp->getPartition() + spmp_index,
+                                     this_addr & addrMask, machine_bank);
     spmpTable[spmp_index].rawAddr = this_addr & addrMask;
     for (uint32_t i = 0; i < static_cast<uint32_t>(spmpEntries); ++i)
         spmpUpdateRule(i);
@@ -264,25 +398,39 @@ SPMP::takeOverFrom(const SPMP &old)
 {
     fatal_if(addrMask != old.addrMask,
              "SPMP takeover requires matching hart XLEN");
-    fatal_if(spmpEntries != old.spmpEntries,
+    fatal_if(getCapacity() != old.getCapacity() ||
+             delegation != old.delegation || enableMask != old.enableMask,
              "SPMP takeover requires matching entry counts (%d != %d)",
-             spmpEntries, old.spmpEntries);
-    for (uint32_t i = 0; i < static_cast<uint32_t>(spmpEntries); ++i) {
-        spmpTable[i].rawAddr = old.spmpTable[i].rawAddr;
-        spmpTable[i].spmpCfg = old.spmpTable[i].spmpCfg;
+             getCapacity(), old.getCapacity());
+    if (!delegation) {
+        for (uint32_t i = 0; i < static_cast<uint32_t>(spmpEntries); ++i) {
+            spmpTable[i].rawAddr = old.spmpTable[i].rawAddr;
+            spmpTable[i].spmpCfg = old.spmpTable[i].spmpCfg;
+        }
     }
-    for (uint32_t i = 0; i < static_cast<uint32_t>(spmpEntries); ++i)
-        spmpUpdateRule(i);
+    if (!delegation)
+        spmpEnable = old.spmpEnable;
+    if (!delegation) {
+        for (uint32_t i = 0; i < static_cast<uint32_t>(spmpEntries); ++i)
+            spmpUpdateRule(i);
+    }
 }
 
 /** Serialize raw architected state using the established checkpoint keys. */
 void
 SPMP::serialize(CheckpointOut &cp) const
 {
-    int cptSpmpEntries = spmpEntries;
+    int cptSpmpEntries = getCapacity();
+    int cptEnableMask = enableMask;
+    int cptDelegation = delegation;
+    SERIALIZE_SCALAR(cptEnableMask);
+    SERIALIZE_SCALAR(cptDelegation);
     SERIALIZE_SCALAR(cptSpmpEntries);
-    for (int i = 0; i < spmpEntries; ++i)
-        spmpTable[i].serializeSection(cp, csprintf("Entry%d", i));
+    if (!delegation) {
+        SERIALIZE_SCALAR(spmpEnable);
+        for (int i = 0; i < spmpEntries; ++i)
+            spmpTable[i].serializeSection(cp, csprintf("Entry%d", i));
+    }
 }
 
 /** Restore raw state before deriving ranges so TOR sees restored predecessors. */
@@ -290,16 +438,26 @@ void
 SPMP::unserialize(CheckpointIn &cp)
 {
     int cptSpmpEntries;
+    int cptEnableMask;
+    int cptDelegation;
+    UNSERIALIZE_SCALAR(cptEnableMask);
+    UNSERIALIZE_SCALAR(cptDelegation);
     UNSERIALIZE_SCALAR(cptSpmpEntries);
-    if (cptSpmpEntries != spmpEntries) {
-        fatal("Current SPMP table size (%d) differs from checkpoint SPMP table "
-              "size (%d).", spmpEntries, cptSpmpEntries);
+    if (cptSpmpEntries != getCapacity()) {
+        fatal("Current SPMP table size (%d) differs from checkpoint SPMP "
+              "table size (%d).", getCapacity(), cptSpmpEntries);
     }
+    fatal_if((cptEnableMask != 0) != enableMask ||
+             (cptDelegation != 0) != delegation,
+             "SPMP checkpoint extension profile is incompatible");
 
-    for (int i = 0; i < spmpEntries; ++i)
-        spmpTable[i].unserializeSection(cp, csprintf("Entry%d", i));
-    for (uint32_t i = 0; i < static_cast<uint32_t>(spmpEntries); ++i)
-        spmpUpdateRule(i);
+    if (!delegation) {
+        UNSERIALIZE_SCALAR(spmpEnable);
+        for (int i = 0; i < spmpEntries; ++i)
+            spmpTable[i].unserializeSection(cp, csprintf("Entry%d", i));
+        for (uint32_t i = 0; i < static_cast<uint32_t>(spmpEntries); ++i)
+            spmpUpdateRule(i);
+    }
 }
 
 } // namespace RiscvISA

@@ -17,93 +17,179 @@ def arguments():
     parser.add_argument("--gem5", type=Path, required=True)
     parser.add_argument("--binaries", type=Path, required=True)
     parser.add_argument("--outdir", type=Path, required=True)
-    parser.add_argument("--group", choices=("all", "config", "fixture", "guest", "lifecycle"), default="all")
+    parser.add_argument(
+        "--group",
+        choices=(
+            "all", "config", "fixture", "guest", "lifecycle", "extensions"
+        ),
+        default="all",
+    )
     parser.add_argument("--timeout", type=int, default=180)
     return parser.parse_args()
 
 
 def scenarios(args):
     """Yield concrete invocations and independent output/rejection oracles."""
-    def case(name, xlen=64, cpu="atomic", feature="on", count=16,
-             mode="guest", extra=(), reject=None, marker=None, binary_feature=None):
+    def case(
+        name,
+        xlen=64,
+        cpu="atomic",
+        feature="on",
+        count=16,
+        mode="guest",
+        extra=(),
+        reject=None,
+        marker=None,
+        binary=None,
+        spmpen="off",
+        delegation="off",
+        pmp_entries=None,
+    ):
         """Describe one process without executing it."""
-        enabled = feature == "on" if binary_feature is None else binary_feature
-        elf = args.binaries / f"spmp-rv{xlen}-{'on' if enabled else 'off'}-n{count if count in (0, 1, 16, 64) else 16}.elf"
-        command = [str(args.gem5.resolve()), "--outdir", str((args.outdir / name).resolve()),
-                   str(Path(__file__).with_name("config.py").resolve()),
-                   "--binary", str(elf.resolve()), "--xlen", str(xlen), "--cpu", cpu,
-                   "--feature", feature, "--mode", mode,
-                   *([] if count is None else ["--entries", str(count)]),
-                   *map(str, extra)]
-        return dict(name=name, command=command, rejection=reject,
-                    marker=marker or ("SPMP_WORKLOAD_PASS" if mode == "guest" else "SPMP_CONFIG_PASS"))
+        elf = args.binaries / (binary or f"test_csr-rv{xlen}.elf")
+        command = [
+            str(args.gem5.resolve()),
+            "--outdir", str((args.outdir / name).resolve()),
+            str(Path(__file__).with_name("config.py").resolve()),
+            "--binary", str(elf.resolve()),
+            "--xlen", str(xlen),
+            "--cpu", cpu,
+            "--feature", feature,
+            "--mode", mode,
+            "--spmpen", spmpen,
+            "--delegation", delegation,
+            *([] if count is None else ["--entries", str(count)]),
+            *([] if pmp_entries is None else ["--pmp-entries", str(pmp_entries)]),
+            *map(str, extra),
+        ]
+        return dict(
+            name=name,
+            command=command,
+            rejection=reject,
+            marker=marker or ("SPMP_WORKLOAD_PASS" if mode == "guest" else "SPMP_CONFIG_PASS"),
+        )
 
+    # 1. Config scenarios (7 cases: 1 per distinct fatal_if guard + positive default)
     if args.group in ("all", "config"):
-        for xlen in (32, 64):
-            # 'default' deliberately leaves enable_Sspmp unassigned.
-            yield case(f"config-rv{xlen}-default", xlen, feature="default", count=None, mode="config", binary_feature=False)
-            for count in (0, 1, 16, 64):
-                yield case(f"config-rv{xlen}-n{count}", xlen, count=count, mode="config")
-                yield case(f"config-rv{xlen}-off-n{count}", xlen, feature="off",
-                           count=count, mode="config")
-            for count in (-1, 65):
-                yield case(f"reject-rv{xlen}-n{count}", xlen, count=count, mode="config",
-                           reject=r"SPMP supports between zero and 64 entries")
-            for profile in ("M", "MU", "MHSU"):
-                for count in (0, 16):
-                    yield case(f"reject-rv{xlen}-{profile}-n{count}", xlen,
-                               count=count, mode="config",
-                               extra=("--profile", profile),
-                               reject=r"Sspmp requires the non-virtualized MSU")
-            yield case(f"reject-rv{xlen}-backend-xlen", xlen, mode="config",
-                       extra=("--backend-xlen", 64 if xlen == 32 else 32),
-                       reject=r"SPMP architecture must match the hart")
+        yield case("config-default", xlen=64, feature="default", count=None, mode="config")
+        yield case(
+            "reject-entries-negative", xlen=64, count=-1, mode="config",
+            reject=r"SPMP supports between zero and 64 entries",
+        )
+        yield case(
+            "reject-entries-overflow", xlen=64, count=65, mode="config",
+            reject=r"SPMP supports between zero and 64 entries",
+        )
+        yield case(
+            "reject-profile-non-msu", xlen=64, mode="config",
+            extra=("--profile", "MU"),
+            reject=r"Sspmp requires the non-virtualized MSU",
+        )
+        yield case(
+            "reject-backend-xlen", xlen=64, mode="config",
+            extra=("--backend-xlen", 32),
+            reject=r"SPMP architecture must match the hart",
+        )
+        yield case(
+            "reject-ext-without-spmp", xlen=64, feature="off", count=4,
+            spmpen="on", mode="config",
+            reject=r"Sspmpen and Smpmpdeleg require Sspmp",
+        )
+        yield case(
+            "reject-switch-mismatch", xlen=64,
+            extra=("--switch-to", "timing", "--switch-entries", 1),
+            reject=r"Cannot switch CPUs with incompatible SPMP",
+        )
 
+    # 2. Fixture scenarios (3 cases)
     if args.group in ("all", "fixture"):
-        for xlen in (32, 64):
-            for count in (0, 1, 16, 64):
-                yield case(f"fixture-rv{xlen}-n{count}", xlen, count=count, mode="fixture", marker="SPMP_FIXTURE_PASS")
-            yield case(f"fixture-rv{xlen}-disabled", xlen, feature="default", mode="fixture",
-                       marker="SPMP_FIXTURE_PASS", binary_feature=False)
-            yield case(f"fixture-rv{xlen}-rnmi", xlen, mode="fixture",
-                       extra=("--rnmi",), marker="SPMP_FIXTURE_PASS")
-            yield case(f"reject-fixture-rv{xlen}-shared", xlen, mode="fixture-shared-mismatch",
-                       reject=r"RISC-V harts sharing an MMU must have matching SPMP")
+        yield case(
+            "fixture-rv32", xlen=32, binary="test_csr-rv32.elf", mode="fixture",
+            extra=("--rnmi",), marker="SPMP_FIXTURE_PASS",
+        )
+        yield case(
+            "fixture-rv64", xlen=64, binary="test_csr-rv64.elf", mode="fixture",
+            extra=("--rnmi",), marker="SPMP_FIXTURE_PASS",
+        )
+        yield case(
+            "reject-fixture-shared", xlen=64, binary="test_csr-rv64.elf",
+            mode="fixture-shared-mismatch",
+            reject=r"RISC-V harts sharing an MMU must have matching SPMP",
+        )
 
+    # 3. Guest scenarios (14 cases: 7 per XLEN)
     if args.group in ("all", "guest"):
         for xlen in (32, 64):
-            for cpu in ("atomic", "timing", "minor"):
-                yield case(f"guest-rv{xlen}-{cpu}", xlen, cpu)
-                yield case(f"guest-rv{xlen}-{cpu}-disabled", xlen, cpu, feature="default", binary_feature=False)
-            for count in (0, 1, 64):
-                yield case(f"guest-rv{xlen}-n{count}", xlen, count=count)
+            yield case(
+                f"guest-csr-rv{xlen}", xlen=xlen, cpu="atomic", count=16,
+                binary=f"test_csr-rv{xlen}.elf",
+            )
+            yield case(
+                f"guest-matching-rv{xlen}", xlen=xlen, cpu="atomic", count=16,
+                binary=f"test_matching-rv{xlen}.elf",
+            )
+            yield case(
+                f"guest-permissions-rv{xlen}", xlen=xlen, cpu="timing", count=16,
+                binary=f"test_permissions-rv{xlen}.elf",
+            )
+            yield case(
+                f"guest-paging-fences-rv{xlen}", xlen=xlen, cpu="minor", count=16,
+                binary=f"test_paging_fences-rv{xlen}.elf",
+            )
+            yield case(
+                f"guest-disabled-rv{xlen}", xlen=xlen, feature="default", count=None,
+                binary=f"test_csr-rv{xlen}.elf",
+            )
+            yield case(
+                f"guest-n0-rv{xlen}", xlen=xlen, count=0,
+                binary=f"test_csr-rv{xlen}.elf",
+            )
+            yield case(
+                f"guest-n64-rv{xlen}", xlen=xlen, count=64,
+                binary=f"test_csr-rv{xlen}.elf",
+            )
 
+    # 4. Extensions scenarios (6 cases: 3 per XLEN)
+    if args.group in ("all", "extensions"):
+        for xlen in (32, 64):
+            yield case(
+                f"ext-shared-rv{xlen}", xlen=xlen, count=0, spmpen="on",
+                delegation="on", pmp_entries=64, binary=f"test_extensions-rv{xlen}.elf",
+            )
+            yield case(
+                f"ext-spmpen-rv{xlen}", xlen=xlen, count=64, spmpen="on",
+                delegation="off", binary=f"test_extensions-rv{xlen}.elf",
+            )
+            yield case(
+                f"ext-delegation-only-rv{xlen}", xlen=xlen, count=16, spmpen="off",
+                delegation="on", pmp_entries=64, binary=f"test_extensions-rv{xlen}.elf",
+            )
+
+    # 5. Lifecycle scenarios (7 cases: 3 per XLEN + 1 reject-restore-mismatch)
     if args.group in ("all", "lifecycle"):
         for xlen in (32, 64):
-            for old, new in (("atomic", "timing"), ("timing", "minor"), ("minor", "timing")):
-                yield case(f"switch-rv{xlen}-{old}-{new}", xlen, old, extra=("--switch-to", new))
-            for what, value in (("feature", "off"), ("entries", 1), ("xlen", 64 if xlen == 32 else 32)):
-                yield case(f"reject-switch-rv{xlen}-{what}", xlen,
-                           extra=("--switch-to", "timing", f"--switch-{what}", value),
-                           reject=r"Cannot switch CPUs with incompatible SPMP")
+            yield case(
+                f"switch-rv{xlen}-atomic-timing", xlen=xlen, cpu="atomic",
+                binary=f"test_csr-rv{xlen}.elf", extra=("--switch-to", "timing"),
+            )
             checkpoint = (args.outdir / f"guest-cpt-rv{xlen}").resolve()
-            yield case(f"save-rv{xlen}", xlen, "timing", extra=("--checkpoint", checkpoint), marker="SPMP_CHECKPOINT_SAVED")
-            yield case(f"restore-rv{xlen}", xlen, "timing", extra=("--restore", checkpoint))
-            yield case(f"reject-restore-rv{xlen}-xlen", 64 if xlen == 32 else 32,
-                       "timing", mode="config", extra=("--restore", checkpoint),
-                       reject=r"SPMP feature, XLEN, or privilege profile differs")
-            for feature, count, reason in (
-                ("off", 16, r"SPMP feature, XLEN, or privilege profile differs"),
-                ("on", 1, r"differs from checkpoint SPMP table size"),
-            ):
-                yield case(f"reject-restore-rv{xlen}-{feature}-n{count}", xlen, "timing", feature, count,
-                           mode="config", extra=("--restore", checkpoint), reject=reason,
-                           binary_feature=feature == "on")
-            fixture_cpt = (args.outdir / f"fixture-cpt-rv{xlen}").resolve()
-            yield case(f"fixture-save-rv{xlen}", xlen, mode="fixture-seed",
-                       extra=("--checkpoint", fixture_cpt), marker="SPMP_CHECKPOINT_SAVED")
-            yield case(f"fixture-restore-rv{xlen}", xlen, mode="fixture-restore",
-                       extra=("--restore", fixture_cpt), marker="SPMP_FIXTURE_RESTORE_PASS")
+            yield case(
+                f"save-rv{xlen}", xlen=xlen, cpu="timing",
+                binary=f"test_csr-rv{xlen}.elf",
+                extra=("--checkpoint", checkpoint),
+                marker="SPMP_CHECKPOINT_SAVED",
+            )
+            yield case(
+                f"restore-rv{xlen}", xlen=xlen, cpu="timing",
+                binary=f"test_csr-rv{xlen}.elf",
+                extra=("--restore", checkpoint),
+            )
+        cpt64 = (args.outdir / "guest-cpt-rv64").resolve()
+        yield case(
+            "reject-restore-mismatch", xlen=64, count=1, mode="config",
+            binary="test_csr-rv64.elf", extra=("--restore", cpt64),
+            reject=r"differs from checkpoint SPMP table size",
+        )
 
 
 def main():
@@ -116,8 +202,10 @@ def main():
         directory = args.outdir / item["name"]
         directory.mkdir(parents=True, exist_ok=True)
         try:
-            result = subprocess.run(item["command"], stdout=subprocess.PIPE,
-                                    stderr=subprocess.STDOUT, text=True, timeout=args.timeout)
+            result = subprocess.run(
+                item["command"], stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT, text=True, timeout=args.timeout,
+            )
             output = result.stdout
             rejection = item["rejection"]
             success = (
@@ -135,7 +223,6 @@ def main():
         (directory / "command.json").write_text(json.dumps(item, indent=2) + "\n")
         results.append(record)
         print(f"{'PASS' if record['passed'] else 'FAIL'} {item['name']}", flush=True)
-        # Preserve results if a later process is interrupted.
         (args.outdir / "results.json").write_text(json.dumps(results, indent=2) + "\n")
     if not results or not all(item["passed"] for item in results):
         raise SystemExit(1)

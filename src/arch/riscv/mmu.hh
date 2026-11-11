@@ -60,6 +60,8 @@ class MMU : public BaseMMU
     SPMP *spmp;
     bool spmpProfileBound = false;
     bool spmpEnabled = false;
+    bool spmpenEnabled = false;
+    bool delegationEnabled = false;
     RiscvType spmpRvType;
     PrivilegeModeSet spmpPrivilegeSet;
 
@@ -117,13 +119,15 @@ class MMU : public BaseMMU
         MMU *ommu = dynamic_cast<MMU*>(old_mmu);
         fatal_if(!ommu, "Cannot take over from a non-RISC-V MMU");
         validateTakeOverFrom(ommu);
+        getPMP()->takeOverFrom(*ommu->getPMP());
         spmp->takeOverFrom(*ommu->spmp);
         BaseMMU::takeOverFrom(ommu);
         pma->takeOverFrom(ommu->pma);
     }
 
+    /** Return the canonical PMP/shared protection owner. */
     PMP *
-    getPMP()
+    getPMP() const
     {
         return static_cast<TLB*>(dtb)->pmp;
     }
@@ -134,15 +138,20 @@ class MMU : public BaseMMU
     /** Bind the first hart profile and reject inconsistent shared-MMU users. */
     void
     bindSPMPProfile(bool enabled, RiscvType rv_type,
-                    PrivilegeModeSet privilege_set)
+                    PrivilegeModeSet privilege_set,
+                    bool enable_mask = false, bool delegation = false)
     {
         fatal_if(spmpProfileBound &&
-                 (spmpEnabled != enabled || spmpRvType != rv_type ||
+                 (spmpEnabled != enabled || spmpenEnabled != enable_mask ||
+                  delegationEnabled != delegation || spmpRvType != rv_type ||
                   spmpPrivilegeSet != privilege_set),
                  "RISC-V harts sharing an MMU must have matching SPMP "
                  "feature, XLEN, and privilege profiles");
+        spmp->bindExtensions(getPMP(), enable_mask, delegation);
         spmpProfileBound = true;
         spmpEnabled = enabled;
+        spmpenEnabled = enable_mask;
+        delegationEnabled = delegation;
         spmpRvType = rv_type;
         spmpPrivilegeSet = privilege_set;
     }
@@ -153,9 +162,12 @@ class MMU : public BaseMMU
     {
         fatal_if(!old_mmu || !spmpProfileBound || !old_mmu->spmpProfileBound ||
                  spmpEnabled != old_mmu->spmpEnabled ||
+                 spmpenEnabled != old_mmu->spmpenEnabled ||
+                 delegationEnabled != old_mmu->delegationEnabled ||
                  spmpRvType != old_mmu->spmpRvType ||
                  spmpPrivilegeSet != old_mmu->spmpPrivilegeSet ||
-                 spmp->getNumEntries() != old_mmu->spmp->getNumEntries(),
+                 spmp->getCapacity() != old_mmu->spmp->getCapacity() ||
+                 getPMP()->getCapacity() != old_mmu->getPMP()->getCapacity(),
                  "Cannot switch CPUs with incompatible SPMP feature, XLEN, "
                  "privilege profile, or entry count");
     }

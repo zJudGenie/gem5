@@ -8,5 +8,10 @@ class SPMP(SimObject):
     cxx_header = "arch/riscv/spmp.hh"
     cxx_class = "gem5::RiscvISA::SPMP"
 
-    spmp_entries = Param.Int(16, "Maximum SPMP Entries Supported")
+    spmp_entries = Param.Int(
+        16, "Standalone SPMP capacity (0-64); ignored under Smpmpdeleg"
+    )
+    delegation_enabled = Param.Bool(
+        False, "Share PMP backing under Smpmpdeleg"
+    )
     riscv_type = Param.RiscvType("RV64", "32 or 64 bits")

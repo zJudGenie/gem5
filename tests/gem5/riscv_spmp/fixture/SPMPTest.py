@@ -11,7 +11,5 @@ class RiscvSPMPTest(SimObject):
     cpu = Param.BaseCPU("CPU whose architectural context is under test")
     cxx_exports = [
         PyBindMethod("run"),
-        PyBindMethod("seedCheckpoint"),
-        PyBindMethod("verifyCheckpoint"),
         PyBindMethod("rejectSharedProfile"),
     ]

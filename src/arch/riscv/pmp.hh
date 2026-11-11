@@ -30,6 +30,8 @@
 #ifndef __ARCH_RISCV_PMP_HH__
 #define __ARCH_RISCV_PMP_HH__
 
+#include <vector>
+
 #include "arch/generic/tlb.hh"
 #include "arch/riscv/isa.hh"
 #include "base/addr_range.hh"
@@ -64,6 +66,12 @@ class PMP : public SimObject
   private:
     /** maximum number of entries in the pmp table */
     int pmpEntries;
+    int partition;
+    bool delegationEnabled;
+    /** Authoritative physical-slot SPMP enable mask in delegation mode. */
+    uint64_t spmpEnable = 0;
+    /** address mask for 32 and 64 bit support */
+    const Addr addrMask;
 
     /** This enum is used for encoding of address matching mode of
      * pmp address register, which is present in bits 3-4 (A) of
@@ -107,7 +115,7 @@ class PMP : public SimObject
         /** raw addr in pmpaddr register for a pmp entry */
         Addr rawAddr = 0;
         /** pmpcfg reg value for a pmp entry */
-        uint8_t pmpCfg = 0;
+        uint64_t pmpCfg = 0;
 
         void
         serialize(CheckpointOut &cp) const
@@ -127,6 +135,36 @@ class PMP : public SimObject
     std::vector<PmpEntry> pmpTable;
 
   public:
+    /** Return the writable physical-entry capacity. */
+    uint32_t getCapacity() const { return pmpEntries; }
+    /** Return the currently PMP-owned prefix length. */
+    uint32_t getNumEntries() const
+    { return delegationEnabled ? partition : pmpEntries; }
+    /** Return one PMP-visible canonical physical address. */
+    Addr getAddr(uint32_t index) const;
+    /** Return one PMP-visible full configuration, or zero when hidden. */
+    uint64_t getCfg(uint32_t index) const;
+    /** Enable dynamic PMP/SPMP partitioning. */
+    void bindDelegation(bool enabled);
+    /** Return the current PMP prefix length. */
+    uint32_t getPartition() const { return getNumEntries(); }
+    /** Apply a WARL partition request after checking PMP locks. */
+    bool setPartition(RegVal value);
+    /** Read visible delegated SPMP enable bits. */
+    uint64_t getSpmpEnable() const;
+    /** Update visible unlocked delegated SPMP enable bits. */
+    void setSpmpEnable(uint64_t value, uint64_t mask);
+    /** Access one canonical shared address by physical slot. */
+    Addr sharedAddr(uint32_t index) const;
+    /** Access one canonical shared configuration by physical slot. */
+    uint64_t sharedCfg(uint32_t index) const;
+    /** Update canonical state through SPMP, preserving the PMP byte rules. */
+    bool updateSharedAddr(uint32_t index, Addr value,
+                          bool machine_bank = false);
+    /** Update canonical state through SPMP, preserving upper SPMP fields. */
+    bool updateSharedCfg(uint32_t index, uint64_t value, bool machine_bank);
+    /** Copy shared PMP state across compatible CPU/MMU takeover. */
+    void takeOverFrom(const PMP &old);
     /**
      * pmpCheck checks if a particular memory access
      * is allowed based on the pmp rules.
@@ -207,7 +245,7 @@ class PMP : public SimObject
      * @param cfg pmpcfg register value.
      * @return The A field.
      */
-    inline uint8_t pmpGetAField(uint8_t cfg);
+    inline uint8_t pmpGetAField(uint64_t cfg);
 
     /**
      * This function decodes a pmpaddr register value

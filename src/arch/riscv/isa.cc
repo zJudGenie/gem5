@@ -158,27 +158,86 @@ const std::array<const char *, NUM_MISCREGS> MiscRegNames = {{
     [MISCREG_MEPC]          = "MEPC",
     [MISCREG_MCAUSE]        = "MCAUSE",
     [MISCREG_MTVAL]         = "MTVAL",
-    [MISCREG_PMPCFG0]       = "PMPCFG0",
-    [MISCREG_PMPCFG1]       = "PMPCFG1",   // pmpcfg1 is rv32 only
-    [MISCREG_PMPCFG2]       = "PMPCFG2",
-    [MISCREG_PMPCFG3]       = "PMPCFG3",   // pmpcfg3 is rv32 only
-    [MISCREG_PMPADDR00]     = "PMPADDR00",
-    [MISCREG_PMPADDR01]     = "PMPADDR01",
-    [MISCREG_PMPADDR02]     = "PMPADDR02",
-    [MISCREG_PMPADDR03]     = "PMPADDR03",
-    [MISCREG_PMPADDR04]     = "PMPADDR04",
-    [MISCREG_PMPADDR05]     = "PMPADDR05",
-    [MISCREG_PMPADDR06]     = "PMPADDR06",
-    [MISCREG_PMPADDR07]     = "PMPADDR07",
-    [MISCREG_PMPADDR08]     = "PMPADDR08",
-    [MISCREG_PMPADDR09]     = "PMPADDR09",
-    [MISCREG_PMPADDR10]     = "PMPADDR10",
-    [MISCREG_PMPADDR11]     = "PMPADDR11",
-    [MISCREG_PMPADDR12]     = "PMPADDR12",
-    [MISCREG_PMPADDR13]     = "PMPADDR13",
-    [MISCREG_PMPADDR14]     = "PMPADDR14",
-    [MISCREG_PMPADDR15]     = "PMPADDR15",
-
+    [MISCREG_PMPCFG0]        = "PMPCFG0",
+    [MISCREG_PMPCFG1]        = "PMPCFG1",
+    [MISCREG_PMPCFG2]        = "PMPCFG2",
+    [MISCREG_PMPCFG3]        = "PMPCFG3",
+    [MISCREG_PMPCFG4]        = "PMPCFG4",
+    [MISCREG_PMPCFG5]        = "PMPCFG5",
+    [MISCREG_PMPCFG6]        = "PMPCFG6",
+    [MISCREG_PMPCFG7]        = "PMPCFG7",
+    [MISCREG_PMPCFG8]        = "PMPCFG8",
+    [MISCREG_PMPCFG9]        = "PMPCFG9",
+    [MISCREG_PMPCFG10]        = "PMPCFG10",
+    [MISCREG_PMPCFG11]        = "PMPCFG11",
+    [MISCREG_PMPCFG12]        = "PMPCFG12",
+    [MISCREG_PMPCFG13]        = "PMPCFG13",
+    [MISCREG_PMPCFG14]        = "PMPCFG14",
+    [MISCREG_PMPCFG15]        = "PMPCFG15",
+    [MISCREG_PMPADDR00]      = "PMPADDR00",
+    [MISCREG_PMPADDR01]      = "PMPADDR01",
+    [MISCREG_PMPADDR02]      = "PMPADDR02",
+    [MISCREG_PMPADDR03]      = "PMPADDR03",
+    [MISCREG_PMPADDR04]      = "PMPADDR04",
+    [MISCREG_PMPADDR05]      = "PMPADDR05",
+    [MISCREG_PMPADDR06]      = "PMPADDR06",
+    [MISCREG_PMPADDR07]      = "PMPADDR07",
+    [MISCREG_PMPADDR08]      = "PMPADDR08",
+    [MISCREG_PMPADDR09]      = "PMPADDR09",
+    [MISCREG_PMPADDR10]      = "PMPADDR10",
+    [MISCREG_PMPADDR11]      = "PMPADDR11",
+    [MISCREG_PMPADDR12]      = "PMPADDR12",
+    [MISCREG_PMPADDR13]      = "PMPADDR13",
+    [MISCREG_PMPADDR14]      = "PMPADDR14",
+    [MISCREG_PMPADDR15]      = "PMPADDR15",
+    [MISCREG_PMPADDR16]      = "PMPADDR16",
+    [MISCREG_PMPADDR17]      = "PMPADDR17",
+    [MISCREG_PMPADDR18]      = "PMPADDR18",
+    [MISCREG_PMPADDR19]      = "PMPADDR19",
+    [MISCREG_PMPADDR20]      = "PMPADDR20",
+    [MISCREG_PMPADDR21]      = "PMPADDR21",
+    [MISCREG_PMPADDR22]      = "PMPADDR22",
+    [MISCREG_PMPADDR23]      = "PMPADDR23",
+    [MISCREG_PMPADDR24]      = "PMPADDR24",
+    [MISCREG_PMPADDR25]      = "PMPADDR25",
+    [MISCREG_PMPADDR26]      = "PMPADDR26",
+    [MISCREG_PMPADDR27]      = "PMPADDR27",
+    [MISCREG_PMPADDR28]      = "PMPADDR28",
+    [MISCREG_PMPADDR29]      = "PMPADDR29",
+    [MISCREG_PMPADDR30]      = "PMPADDR30",
+    [MISCREG_PMPADDR31]      = "PMPADDR31",
+    [MISCREG_PMPADDR32]      = "PMPADDR32",
+    [MISCREG_PMPADDR33]      = "PMPADDR33",
+    [MISCREG_PMPADDR34]      = "PMPADDR34",
+    [MISCREG_PMPADDR35]      = "PMPADDR35",
+    [MISCREG_PMPADDR36]      = "PMPADDR36",
+    [MISCREG_PMPADDR37]      = "PMPADDR37",
+    [MISCREG_PMPADDR38]      = "PMPADDR38",
+    [MISCREG_PMPADDR39]      = "PMPADDR39",
+    [MISCREG_PMPADDR40]      = "PMPADDR40",
+    [MISCREG_PMPADDR41]      = "PMPADDR41",
+    [MISCREG_PMPADDR42]      = "PMPADDR42",
+    [MISCREG_PMPADDR43]      = "PMPADDR43",
+    [MISCREG_PMPADDR44]      = "PMPADDR44",
+    [MISCREG_PMPADDR45]      = "PMPADDR45",
+    [MISCREG_PMPADDR46]      = "PMPADDR46",
+    [MISCREG_PMPADDR47]      = "PMPADDR47",
+    [MISCREG_PMPADDR48]      = "PMPADDR48",
+    [MISCREG_PMPADDR49]      = "PMPADDR49",
+    [MISCREG_PMPADDR50]      = "PMPADDR50",
+    [MISCREG_PMPADDR51]      = "PMPADDR51",
+    [MISCREG_PMPADDR52]      = "PMPADDR52",
+    [MISCREG_PMPADDR53]      = "PMPADDR53",
+    [MISCREG_PMPADDR54]      = "PMPADDR54",
+    [MISCREG_PMPADDR55]      = "PMPADDR55",
+    [MISCREG_PMPADDR56]      = "PMPADDR56",
+    [MISCREG_PMPADDR57]      = "PMPADDR57",
+    [MISCREG_PMPADDR58]      = "PMPADDR58",
+    [MISCREG_PMPADDR59]      = "PMPADDR59",
+    [MISCREG_PMPADDR60]      = "PMPADDR60",
+    [MISCREG_PMPADDR61]      = "PMPADDR61",
+    [MISCREG_PMPADDR62]      = "PMPADDR62",
+    [MISCREG_PMPADDR63]      = "PMPADDR63",
     [MISCREG_RESERVED01]    = "",
     [MISCREG_RESERVED02]    = "",
     [MISCREG_STVEC]         = "STVEC",
@@ -323,6 +382,17 @@ const std::array<const char *, NUM_MISCREGS> MiscRegNames = {{
     [MISCREG_SIREG4]        = "SIREG4",
     [MISCREG_SIREG5]        = "SIREG5",
     [MISCREG_SIREG6]        = "SIREG6",
+    [MISCREG_MISELECT]      = "MISELECT",
+    [MISCREG_MIREG]         = "MIREG",
+    [MISCREG_MIREG2]        = "MIREG2",
+    [MISCREG_MIREG3]        = "MIREG3",
+    [MISCREG_MIREG4]        = "MIREG4",
+    [MISCREG_MIREG5]        = "MIREG5",
+    [MISCREG_MIREG6]        = "MIREG6",
+    [MISCREG_SPMPEN]        = "SPMPEN",
+    [MISCREG_SPMPENH]       = "SPMPENH",
+    [MISCREG_MPMPDELEG]     = "MPMPDELEG",
+
 
     [MISCREG_FFLAGS_EXE]    = "FFLAGS_EXE",
 }};
@@ -339,14 +409,23 @@ RegClass ccRegClass(CCRegClass, CCRegClassName, 0, debug::IntRegs);
 
 } // anonymous namespace
 
+/** Construct the ISA and reject incompatible SPMP extension profiles. */
 ISA::ISA(const Params &p) : BaseISA(p, "riscv"),
     _rvType(p.riscv_type), enableRvv(p.enable_rvv), vlen(p.vlen), elen(p.elen),
     _privilegeModeSet(p.privilege_mode_set),
     _wfiResumeOnPending(p.wfi_resume_on_pending), _enableZcd(p.enable_Zcd),
-    _enableSmrnmi(p.enable_Smrnmi), _enableSspmp(p.enable_Sspmp)
+    _enableSmrnmi(p.enable_Smrnmi), _enableSspmp(p.enable_Sspmp),
+    _enableSspmpen(p.enable_Sspmpen),
+    _enableSmpmpdeleg(p.enable_Smpmpdeleg)
 {
     fatal_if(_enableSspmp && _privilegeModeSet != enums::MSU,
              "Sspmp requires the non-virtualized MSU privilege profile");
+    fatal_if((_enableSspmpen || _enableSmpmpdeleg) && !_enableSspmp,
+             "Sspmpen and Smpmpdeleg require Sspmp");
+    fatal_if((_enableSspmpen || _enableSmpmpdeleg) &&
+             _privilegeModeSet != enums::MSU,
+             "Sspmpen and Smpmpdeleg require the non-virtualized MSU "
+             "privilege profile");
     _regClasses.push_back(&intRegClass);
     _regClasses.push_back(&floatRegClass);
     _regClasses.push_back(&vecRegClass);
@@ -376,7 +455,8 @@ ISA::setThreadContext(ThreadContext *_tc)
     const auto spmp = mmu->getSPMP();
     fatal_if(spmp->params().riscv_type != _rvType,
              "SPMP architecture must match the hart's RISC-V type");
-    mmu->bindSPMPProfile(_enableSspmp, _rvType, _privilegeModeSet);
+    mmu->bindSPMPProfile(_enableSspmp, _rvType, _privilegeModeSet,
+                         _enableSspmpen, _enableSmpmpdeleg);
 }
 
 bool ISA::inUserMode() const
@@ -548,9 +628,45 @@ ISA::hpmCounterCheck(int misc_reg, ExtMachInst machInst) const
     return NoFault;
 }
 
+/** Read raw misc state, resolving protection registers canonically. */
 RegVal
 ISA::readMiscRegNoEffect(RegIndex idx) const
 {
+    // Direct protection registers have one authoritative backend copy.
+    switch (idx) {
+      case MISCREG_SPMPEN:
+        if (!_enableSspmpen)
+            return 0;
+        {
+            const RegVal value = static_cast<MMU *>(tc->getMMUPtr())->
+                getSPMP()->getEnable();
+            return _rvType == RV32 ? bits(value, 31, 0) : value;
+        }
+      case MISCREG_SPMPENH:
+        if (!_enableSspmpen || _rvType != RV32)
+            return 0;
+        return bits(static_cast<MMU *>(tc->getMMUPtr())->getSPMP()->
+                    getEnable(), 63, 32);
+      case MISCREG_MPMPDELEG:
+        if (!_enableSmpmpdeleg)
+            return 0;
+        return static_cast<MMU *>(tc->getMMUPtr())->getPMP()->getPartition();
+      case MISCREG_PMPCFG0 ... MISCREG_PMPCFG15:
+        {
+            auto pmp = static_cast<MMU *>(tc->getMMUPtr())->getPMP();
+            const unsigned perReg = _rvType == RV32 ? 4 : 8;
+            const unsigned base = (idx - MISCREG_PMPCFG0) * 4;
+            RegVal value = 0;
+            for (unsigned i = 0; i < perReg; ++i)
+                value |= (pmp->getCfg(base + i) & 0xff) << (8 * i);
+            return value;
+        }
+      case MISCREG_PMPADDR00 ... MISCREG_PMPADDR63:
+        return static_cast<MMU *>(tc->getMMUPtr())->getPMP()->getAddr(
+            idx - MISCREG_PMPADDR00);
+      default:
+        break;
+    }
     // Illegal CSR
     panic_if(idx > NUM_PHYS_MISCREGS, "Illegal CSR index %#x\n", idx);
     DPRINTF(RiscvMisc, "Reading MiscReg %s (%d): %#x.\n",
@@ -563,6 +679,25 @@ RegVal
 ISA::readMiscReg(RegIndex idx)
 {
     switch (idx) {
+      case MISCREG_MIREG:
+      case MISCREG_MIREG2:
+        {
+            if (!_enableSmpmpdeleg)
+                return 0;
+            const RegVal selector = readMiscRegNoEffect(MISCREG_MISELECT);
+            if (selector < 0x100 || selector > 0x13f)
+                return 0;
+            auto spmp = static_cast<MMU *>(tc->getMMUPtr())->getSPMP();
+            const uint32_t entry = selector - 0x100;
+            const RegVal value = idx == MISCREG_MIREG ?
+                spmp->getAddr(entry) : spmp->getCfg(entry);
+            return _rvType == RV32 ? bits(value, 31, 0) : value;
+        }
+      case MISCREG_MIREG3:
+      case MISCREG_MIREG4:
+      case MISCREG_MIREG5:
+      case MISCREG_MIREG6:
+        return 0;
       case MISCREG_SIREG:
       case MISCREG_SIREG2:
         {
@@ -580,6 +715,13 @@ ISA::readMiscReg(RegIndex idx)
             return tc->pcState().as<PCState>().rvType() == RV32 ?
                 bits(val, 31, 0) : val;
         }
+      case MISCREG_SPMPEN:
+      case MISCREG_SPMPENH:
+      case MISCREG_MPMPDELEG:
+        return readMiscRegNoEffect(idx);
+      case MISCREG_PMPCFG0 ... MISCREG_PMPCFG15:
+      case MISCREG_PMPADDR00 ... MISCREG_PMPADDR63:
+        return readMiscRegNoEffect(idx);
       case MISCREG_SIREG3:
       case MISCREG_SIREG4:
       case MISCREG_SIREG5:
@@ -834,6 +976,32 @@ ISA::setMiscReg(RegIndex idx, RegVal val)
         warn("Ignoring write to miscreg %s.\n", MiscRegNames[idx]);
     } else {
         switch (idx) {
+          case MISCREG_MISELECT:
+            setMiscRegNoEffect(idx, bits(val, 11, 0));
+            break;
+          case MISCREG_MIREG:
+          case MISCREG_MIREG2:
+            {
+                if (!_enableSmpmpdeleg)
+                    break;
+                const RegVal selector = readMiscRegNoEffect(MISCREG_MISELECT);
+                if (selector < 0x100 || selector > 0x13f)
+                    break;
+                auto spmp = static_cast<MMU *>(tc->getMMUPtr())->getSPMP();
+                const uint32_t entry = selector - 0x100;
+                if (_rvType == RV32)
+                    val = bits(val, 31, 0);
+                if (idx == MISCREG_MIREG)
+                    spmp->spmpUpdateAddr(entry, val, true);
+                else
+                    spmp->spmpUpdateCfg(entry, val, true);
+            }
+            break;
+          case MISCREG_MIREG3:
+          case MISCREG_MIREG4:
+          case MISCREG_MIREG5:
+          case MISCREG_MIREG6:
+            break;
           case MISCREG_SISELECT:
             setMiscRegNoEffect(idx, bits(val, 11, 0));
             break;
@@ -863,70 +1031,55 @@ ISA::setMiscReg(RegIndex idx, RegVal val)
           case MISCREG_SIREG6:
             break;
 
+          case MISCREG_SPMPEN:
+            if (_enableSspmpen) {
+                const uint64_t mask = _rvType == RV32 ? 0xffffffffULL :
+                    ~uint64_t{0};
+                static_cast<MMU *>(tc->getMMUPtr())->getSPMP()->setEnable(
+                    val, mask);
+            }
+            break;
+          case MISCREG_SPMPENH:
+            if (_enableSspmpen && _rvType == RV32) {
+                static_cast<MMU *>(tc->getMMUPtr())->getSPMP()->setEnable(
+                    val << 32, 0xffffffff00000000ULL);
+            }
+            break;
+          case MISCREG_MPMPDELEG:
+            if (_enableSmpmpdeleg) {
+                auto pmp = static_cast<MMU *>(tc->getMMUPtr())->getPMP();
+                pmp->setPartition(val);
+            }
+            break;
+
           // From section 3.7.1 of RISCV priv. specs
           // V1.12, the odd-numbered configuration
           // registers are illegal for RV64 and
           // each 64 bit CFG register hold configurations
           // for 8 PMP entries.
 
-          case MISCREG_PMPCFG0:
-          case MISCREG_PMPCFG1:
-          case MISCREG_PMPCFG2:
-          case MISCREG_PMPCFG3:
+          case MISCREG_PMPCFG0 ... MISCREG_PMPCFG15:
             {
                 // PMP registers should only be modified in M mode
                 assert(readMiscRegNoEffect(MISCREG_PRV) == PRV_M);
 
-                int regSize = 0;
-                switch (_rvType) {
-                    case RV32:
-                        regSize = 4;
-                    break;
-                    case RV64:
-                        regSize = 8;
-                    break;
-                    default:
-                        panic("%s: Unknown _rvType: %d", name(), (int)_rvType);
-                }
-
-                // Specs do not seem to mention what should be
-                // configured first, cfg or address regs!
-                // qemu seems to update the tables when
-                // pmp addr regs are written (with the assumption
-                // that cfg regs are already written)
-                RegVal res = 0;
-                RegVal old_val = readMiscRegNoEffect(idx);
-
-                for (int i=0; i < regSize; i++) {
-
+                const unsigned entriesPerReg = _rvType == RV32 ? 4 : 8;
+                const unsigned base = (idx - MISCREG_PMPCFG0) * 4;
+                auto pmp = static_cast<MMU *>(tc->getMMUPtr())->getPMP();
+                for (unsigned i = 0; i < entriesPerReg; ++i) {
                     uint8_t cfg_val = (val >> (8*i)) & 0xff;
-                    auto mmu = dynamic_cast<RiscvISA::MMU *>
-                                (tc->getMMUPtr());
-
-                    // Form pmp_index using the index i and
-                    // PMPCFG register number
-                    uint32_t pmp_index = i+(4*(idx-MISCREG_PMPCFG0));
-                    bool result = mmu->getPMP()->pmpUpdateCfg(pmp_index,cfg_val);
-                    if (result) {
-                        res |= ((RegVal)cfg_val << (8*i));
-                    } else {
-                        res |= (old_val & (0xFF << (8*i)));
-                    }
+                    pmp->pmpUpdateCfg(base + i, cfg_val);
                 }
-                setMiscRegNoEffect(idx, res);
             }
             break;
-          case MISCREG_PMPADDR00 ... MISCREG_PMPADDR15:
+          case MISCREG_PMPADDR00 ... MISCREG_PMPADDR63:
             {
                 // PMP registers should only be modified in M mode
                 assert(readMiscRegNoEffect(MISCREG_PRV) == PRV_M);
 
-                auto mmu = dynamic_cast<RiscvISA::MMU *>
-                              (tc->getMMUPtr());
+                auto pmp = static_cast<MMU *>(tc->getMMUPtr())->getPMP();
                 uint32_t pmp_index = idx-MISCREG_PMPADDR00;
-                if (mmu->getPMP()->pmpUpdateAddr(pmp_index, val)) {
-                    setMiscRegNoEffect(idx, val);
-                }
+                pmp->pmpUpdateAddr(pmp_index, val);
             } break;
           case MISCREG_SPMPBASE0 ... MISCREG_SPMPBASE7:
             {
@@ -1231,9 +1384,13 @@ ISA::serialize(CheckpointOut &cp) const
     DPRINTF(Checkpoint, "Serializing Riscv Misc Registers\n");
     SERIALIZE_CONTAINER(miscRegFile);
     int cptSspmpEnabled = _enableSspmp;
+    int cptSspmpenEnabled = _enableSspmpen;
+    int cptSmpmpdelegEnabled = _enableSmpmpdeleg;
     int cptSspmpRvType = _rvType;
     int cptSspmpPrivilegeSet = _privilegeModeSet;
     SERIALIZE_SCALAR(cptSspmpEnabled);
+    SERIALIZE_SCALAR(cptSspmpenEnabled);
+    SERIALIZE_SCALAR(cptSmpmpdelegEnabled);
     SERIALIZE_SCALAR(cptSspmpRvType);
     SERIALIZE_SCALAR(cptSspmpPrivilegeSet);
 }
@@ -1245,23 +1402,32 @@ ISA::unserialize(CheckpointIn &cp)
     DPRINTF(Checkpoint, "Unserializing Riscv Misc Registers\n");
     UNSERIALIZE_CONTAINER(miscRegFile);
     int cptSspmpEnabled = 0;
+    int cptSspmpenEnabled = 0;
+    int cptSmpmpdelegEnabled = 0;
     int cptSspmpRvType = 0;
     int cptSspmpPrivilegeSet = 0;
     const bool hasEnabled = optParamIn(cp, "cptSspmpEnabled", cptSspmpEnabled,
                                        false);
+    const bool hasSspmpen = optParamIn(cp, "cptSspmpenEnabled",
+                                       cptSspmpenEnabled, false);
+    const bool hasSmpmpdeleg = optParamIn(cp, "cptSmpmpdelegEnabled",
+                                          cptSmpmpdelegEnabled, false);
     const bool hasRvType = optParamIn(cp, "cptSspmpRvType", cptSspmpRvType,
                                       false);
     const bool hasPrivilegeSet = optParamIn(
         cp, "cptSspmpPrivilegeSet", cptSspmpPrivilegeSet, false);
-    fatal_if(hasEnabled != hasRvType || hasRvType != hasPrivilegeSet,
+    fatal_if(hasEnabled != hasRvType || hasRvType != hasPrivilegeSet ||
+             hasEnabled != hasSspmpen || hasEnabled != hasSmpmpdeleg,
              "Incomplete SPMP ISA configuration in checkpoint");
     if (!hasEnabled) {
-        fatal_if(_enableSspmp,
+        fatal_if(_enableSspmp || _enableSspmpen || _enableSmpmpdeleg,
                  "Legacy checkpoint has no SPMP ISA metadata; restore "
                  "requires Sspmp disabled");
         warn("Restoring legacy RISC-V checkpoint without SPMP ISA metadata");
     } else {
         fatal_if((cptSspmpEnabled != 0) != _enableSspmp ||
+                 (cptSspmpenEnabled != 0) != _enableSspmpen ||
+                 (cptSmpmpdelegEnabled != 0) != _enableSmpmpdeleg ||
                  cptSspmpRvType != static_cast<int>(_rvType) ||
                  cptSspmpPrivilegeSet != static_cast<int>(_privilegeModeSet),
                  "SPMP feature, XLEN, or privilege profile differs from "
@@ -1363,6 +1529,7 @@ void
 ISA::resetThread()
 {
     setMiscRegNoEffect(MISCREG_SISELECT, 0);
+    setMiscRegNoEffect(MISCREG_MISELECT, 0);
     Reset().invoke(tc);
 }
 
@@ -1430,11 +1597,31 @@ ISA::tvmChecks(uint64_t csr, PrivilegeMode pm, ExtMachInst machInst)
     return NoFault;
 }
 
-/** Reject unsupported selections and guest access to the host indirect bank. */
+/** Validate indirect CSR selections and reject unsupported extension banks. */
 Fault
 ISA::indirectCSRCheck(uint64_t csr, ExtMachInst machInst) const
 {
     switch (csr) {
+      case CSR_MISELECT:
+      case CSR_MIREG:
+      case CSR_MIREG2:
+      case CSR_MIREG3:
+      case CSR_MIREG4:
+      case CSR_MIREG5:
+      case CSR_MIREG6:
+        if (!_enableSmpmpdeleg)
+            return std::make_shared<IllegalInstFault>(
+                "Machine indirect CSRs require Smpmpdeleg", machInst);
+        if (csr == CSR_MISELECT)
+            return NoFault;
+        if (csr != CSR_MIREG && csr != CSR_MIREG2)
+            return std::make_shared<IllegalInstFault>(
+                "Reserved machine indirect CSR alias", machInst);
+        if (readMiscRegNoEffect(MISCREG_MISELECT) < 0x100 ||
+            readMiscRegNoEffect(MISCREG_MISELECT) > 0x13f)
+            return std::make_shared<IllegalInstFault>(
+                "Unsupported machine indirect CSR selection", machInst);
+        return NoFault;
       case CSR_SISELECT:
       case CSR_SIREG:
       case CSR_SIREG2:
@@ -1444,6 +1631,14 @@ ISA::indirectCSRCheck(uint64_t csr, ExtMachInst machInst) const
       case CSR_SIREG6:
         break;
       default:
+        if (csr == CSR_SPMPEN || csr == CSR_SPMPENH) {
+            if (!_enableSspmpen)
+                return std::make_shared<IllegalInstFault>(
+                    "SPMP enable CSRs require Sspmpen", machInst);
+        } else if (csr == CSR_MPMPDELEG && !_enableSmpmpdeleg) {
+            return std::make_shared<IllegalInstFault>(
+                "mpmpdeleg requires Smpmpdeleg", machInst);
+        }
         return NoFault;
     }
 

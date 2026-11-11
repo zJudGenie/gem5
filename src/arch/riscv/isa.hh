@@ -127,6 +127,10 @@ class ISA : public BaseISA
 
     /** Enable supervisor physical memory protection. */
     const bool _enableSspmp;
+    /** Enable the supervisor physical protection enable mask. */
+    const bool _enableSspmpen;
+    /** Enable dynamic PMP/SPMP entry delegation. */
+    const bool _enableSmpmpdeleg;
 
   public:
     using Params = RiscvISAParams;

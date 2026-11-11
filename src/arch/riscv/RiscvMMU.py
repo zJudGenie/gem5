@@ -52,9 +52,15 @@ class RiscvMMU(BaseMMU):
     itb = RiscvTLB(entry_type="instruction")
     dtb = RiscvTLB(entry_type="data")
     pma_checker = Param.BasePMAChecker(PMAChecker(), "PMA Checker")
-    pmp = Param.PMP(PMP(), "Physical Memory Protection Unit")
+    pmp = Param.PMP(
+        PMP(riscv_type=Parent.isa[0].riscv_type),
+        "Physical Memory Protection Unit",
+    )
     spmp = Param.SPMP(
-        SPMP(riscv_type=Parent.isa[0].riscv_type),
+        SPMP(
+            riscv_type=Parent.isa[0].riscv_type,
+            delegation_enabled=Parent.isa[0].enable_Smpmpdeleg,
+        ),
         "Supervisor Physical Memory Protection Unit",
     )
 

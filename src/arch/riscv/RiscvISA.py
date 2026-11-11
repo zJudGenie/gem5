@@ -46,6 +46,7 @@ from m5.params import (
     Param,
     UInt32,
 )
+from m5.proxy import isproxy
 
 
 class RiscvVectorLength(UInt32):
@@ -130,6 +131,9 @@ class RiscvISA(BaseISA):
     )
     enable_Sspmp = Param.Bool(False, "Enable S-level physical memory protection")
 
+    enable_Sspmpen = Param.Bool(False, "Enable SPMP entry enable masks")
+    enable_Smpmpdeleg = Param.Bool(False, "Enable shared PMP/SPMP delegation")
+
     wfi_resume_on_pending = Param.Bool(
         False,
         "If wfi_resume_on_pending is set to True, the hart will resume "
@@ -140,8 +144,42 @@ class RiscvISA(BaseISA):
         "pending.",
     )
 
+    def _validate_spmp(self):
+        """Reject unsupported protection profiles before C++ instantiation."""
+        if (
+            self.enable_Sspmpen.value or self.enable_Smpmpdeleg.value
+        ) and not self.enable_Sspmp.value:
+            raise ValueError("Sspmpen and Smpmpdeleg require Sspmp")
+        if self.enable_Sspmp.value and self.privilege_mode_set.value != "MSU":
+            raise ValueError(
+                "Sspmp requires the non-virtualized MSU privilege profile"
+            )
+        if not self.enable_Sspmp.value:
+            return
+        mmu = self._parent.mmu
+        if not 0 <= mmu.pmp.pmp_entries.value <= 64:
+            raise ValueError("PMP supports between zero and 64 entries")
+        if (
+            not self.enable_Smpmpdeleg.value
+            and not 0 <= mmu.spmp.spmp_entries.value <= 64
+        ):
+            raise ValueError("SPMP supports between zero and 64 entries")
+        if (
+            not isproxy(mmu.spmp.riscv_type)
+            and mmu.spmp.riscv_type.value != self.riscv_type.value
+        ):
+            raise ValueError(
+                "SPMP architecture must match the hart's RISC-V type"
+            )
+
+    def createCCObject(self):
+        """Validate the protection configuration before creating the hart."""
+        self._validate_spmp()
+        super().createCCObject()
+
     def get_isa_string(self):
         """Return the implemented ISA extensions for this hart's profile."""
+        self._validate_spmp()
         isa_extensions = []
         # check for the base ISA type
         if self.riscv_type.value == "RV32":
@@ -178,11 +216,20 @@ class RiscvISA(BaseISA):
             isa_string += "_Sscsrind"
             if self.enable_Sspmp.value:
                 mmu = self._parent.mmu
-                if mmu.spmp.spmp_entries.value > 0:
+                if (
+                    self.enable_Sspmpen.value
+                    or self.enable_Smpmpdeleg.value
+                    or mmu.spmp.spmp_entries.value > 0
+                ):
                     isa_string += "_Sspmp"
         elif self.enable_Sspmp.value:
             raise ValueError(
                 "Sspmp requires the non-virtualized MSU privilege profile"
             )
+
+        if self.enable_Sspmpen.value:
+            isa_string += "_Sspmpen"
+        if self.enable_Smpmpdeleg.value:
+            isa_string += "_Smpmpdeleg_Smcsrind"
 
         return isa_string

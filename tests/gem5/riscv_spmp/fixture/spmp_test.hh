@@ -20,14 +20,8 @@ class SPMPTest : public SimObject
     PARAMS(RiscvSPMPTest);
     SPMPTest(const RiscvSPMPTestParams &p);
 
-    /** Run direct backend and translation checks and fail on the first error. */
+    /** Run the 5 C++-only Request and MMU invariant checks. */
     void run();
-
-    /** Seed a locked, multi-entry configuration for checkpoint validation. */
-    void seedCheckpoint();
-
-    /** Verify checkpoint-restored selector, entries, and enforcement. */
-    void verifyCheckpoint();
 
     /** Deliberately bind an incompatible context to exercise shared-MMU checks. */
     void rejectSharedProfile();
@@ -36,4 +30,4 @@ class SPMPTest : public SimObject
 } // namespace RiscvISA
 } // namespace gem5
 
-#endif
+#endif // __TESTS_GEM5_RISCV_SPMP_FIXTURE_SPMP_TEST_HH__
