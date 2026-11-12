@@ -24,63 +24,6 @@ TimberV::TimberV(const Params &params)
       mtstatus(0),
       currentTtcbPtr(0)
 {
-    slots.resize(params.num_slots);
-    for (size_t i = 0; i < slots.size(); i++) {
-        slots[i].base = 0;
-        slots[i].bound = (Addr)-1;
-        slots[i].flags = 0x7;
-    }
-}
-
-void
-TimberV::updateBase(uint32_t index, Addr base, PrivilegeMode prv)
-{
-    if (index < slots.size()) {
-        if (prv == PrivilegeMode::PRV_S && secLevel == 0) {
-            // SN cannot overwrite an existing ST entry
-            if (slots[index].flags & SPMP_ST) {
-                warn("Cannot overwrite Timber-V ST entry base from SN! Ignoring.\n");
-                return;
-            }
-            // Changing base from SN automatically clears ACK
-            slots[index].flags &= ~SPMP_ACK;
-        }
-        slots[index].base = base;
-    }
-}
-
-void
-TimberV::updateBound(uint32_t index, Addr bound, PrivilegeMode prv)
-{
-    if (index < slots.size()) {
-        if (prv == PrivilegeMode::PRV_S && secLevel == 0) {
-            // SN cannot overwrite an existing ST entry
-            if (slots[index].flags & SPMP_ST) {
-                warn("Cannot overwrite Timber-V ST entry bound from SN! Ignoring.\n");
-                return;
-            }
-            // Changing bound from SN automatically clears ACK
-            slots[index].flags &= ~SPMP_ACK;
-        }
-        slots[index].bound = bound;
-    }
-}
-
-void
-TimberV::updateFlags(uint32_t index, uint8_t flags, PrivilegeMode prv)
-{
-    if (index < slots.size()) {
-        if (prv == PrivilegeMode::PRV_S && secLevel == 0) {
-            // SN cannot write ST flag or overwrite existing ST entry
-            if ((flags & SPMP_ST) || (slots[index].flags & SPMP_ST)) {
-                warn("Cannot (over)write Timber-V ST entry from SN! Ignoring.\n");
-                return;
-            }
-            // SN automatically clears ACK
-            flags &= ~SPMP_ACK;
-        }
-        slots[index].flags = flags;
-    }
 }
 
 void
@@ -89,11 +32,6 @@ TimberV::reset()
     secLevel = 0;
     mtstatus = 0;
     currentTtcbPtr = 0;
-    for (size_t i = 0; i < slots.size(); i++) {
-        slots[i].base = 0;
-        slots[i].bound = (Addr)-1;
-        slots[i].flags = 0x7;
-    }
     timberVTags().reset();
 }
 
@@ -159,67 +97,6 @@ TimberV::checkAccess(const RequestPtr &req, BaseMMU::Mode mode,
         }
     }
 
-    // Timber-V slot permission checking matching Spike
-    if (pmode == PrivilegeMode::PRV_S) {
-        if (mode == BaseMMU::Execute) {
-            if (secLevel == 1) { // ST mode fetch
-                bool st_found = false;
-                for (size_t i = 0; i < slots.size(); i++) {
-                    Addr base = slots[i].base;
-                    Addr bound = slots[i].bound;
-                    uint8_t flags = slots[i].flags;
-                    if (req->getPaddr() >= base &&
-                        req->getPaddr() + req->getSize() - 1 <= bound &&
-                        (flags & (1 << SPMP_X_BIT))) {
-                        if (flags & SPMP_ST) {
-                            st_found = true;
-                            break;
-                        }
-                    }
-                }
-                if (!st_found) {
-                    return createAccessFault(fault_vaddr, mode);
-                }
-            }
-            // SN mode fetch is allowed by SPMP
-        }
-        // S-mode load/store: S can read/write anything in physical memory
-    } else if (pmode == PrivilegeMode::PRV_U) {
-        bool u_ok = false;
-        for (size_t i = 0; i < slots.size(); i++) {
-            Addr base = slots[i].base;
-            Addr bound = slots[i].bound;
-            uint8_t flags = slots[i].flags;
-            uint8_t perm = flags & 0x7;
-
-            if (req->getPaddr() >= base &&
-                req->getPaddr() + req->getSize() - 1 <= bound) {
-                bool r_ok = (mode == BaseMMU::Mode::Read) && (perm & (1 << SPMP_R_BIT));
-                bool w_ok = (mode == BaseMMU::Mode::Write) && (perm & (1 << SPMP_W_BIT));
-                bool x_ok = (mode == BaseMMU::Mode::Execute) && (perm & (1 << SPMP_X_BIT));
-
-                if (r_ok || w_ok || x_ok) {
-                    // UT fetch requires entry with T-flag which is ACK'ed
-                    if (secLevel == 1 && mode == BaseMMU::Execute) {
-                        if (!(flags & SPMP_T) || !(flags & SPMP_ACK)) {
-                            continue;
-                        }
-                    }
-                    // User mode cannot access ST range
-                    if (flags & SPMP_ST) {
-                        continue;
-                    }
-                    u_ok = true;
-                    break;
-                }
-            }
-        }
-
-        if (!u_ok) {
-            return createAccessFault(fault_vaddr, mode);
-        }
-    }
-
     // Table III: Global Tag Isolation Policy for Load and Store
     if (mode != BaseMMU::Execute && isTimberVActive()) {
         int accType = (mode == BaseMMU::Read) ? TIMBV_LOAD : TIMBV_STORE;
@@ -254,9 +131,6 @@ TimberV::createAccessFault(Addr vaddr, BaseMMU::Mode mode)
 void
 TimberV::serialize(CheckpointOut &cp) const
 {
-    for (size_t i = 0; i < slots.size(); i++) {
-        slots[i].serializeSection(cp, csprintf("TimberVSlot%zu", i));
-    }
     SERIALIZE_SCALAR(secLevel);
     SERIALIZE_SCALAR(mtstatus);
     SERIALIZE_SCALAR(currentTtcbPtr);
@@ -265,9 +139,6 @@ TimberV::serialize(CheckpointOut &cp) const
 void
 TimberV::unserialize(CheckpointIn &cp)
 {
-    for (size_t i = 0; i < slots.size(); i++) {
-        slots[i].unserializeSection(cp, csprintf("TimberVSlot%zu", i));
-    }
     UNSERIALIZE_SCALAR(secLevel);
     UNSERIALIZE_SCALAR(mtstatus);
     UNSERIALIZE_SCALAR(currentTtcbPtr);

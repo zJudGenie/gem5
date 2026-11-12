@@ -314,30 +314,6 @@ const std::array<const char *, NUM_MISCREGS> MiscRegNames = {{
     [MISCREG_STTCB]         = "STTCB",
     [MISCREG_STTVEC]        = "STTVEC",
     [MISCREG_STSCRATCH]     = "STSCRATCH",
-    [MISCREG_SPMPBASE0]     = "SPMPBASE0",
-    [MISCREG_SPMPBASE1]     = "SPMPBASE1",
-    [MISCREG_SPMPBASE2]     = "SPMPBASE2",
-    [MISCREG_SPMPBASE3]     = "SPMPBASE3",
-    [MISCREG_SPMPBASE4]     = "SPMPBASE4",
-    [MISCREG_SPMPBASE5]     = "SPMPBASE5",
-    [MISCREG_SPMPBASE6]     = "SPMPBASE6",
-    [MISCREG_SPMPBASE7]     = "SPMPBASE7",
-    [MISCREG_SPMPBOUND0]    = "SPMPBOUND0",
-    [MISCREG_SPMPBOUND1]    = "SPMPBOUND1",
-    [MISCREG_SPMPBOUND2]    = "SPMPBOUND2",
-    [MISCREG_SPMPBOUND3]    = "SPMPBOUND3",
-    [MISCREG_SPMPBOUND4]    = "SPMPBOUND4",
-    [MISCREG_SPMPBOUND5]    = "SPMPBOUND5",
-    [MISCREG_SPMPBOUND6]    = "SPMPBOUND6",
-    [MISCREG_SPMPBOUND7]    = "SPMPBOUND7",
-    [MISCREG_SPMPFLAGS0]    = "SPMPFLAGS0",
-    [MISCREG_SPMPFLAGS1]    = "SPMPFLAGS1",
-    [MISCREG_SPMPFLAGS2]    = "SPMPFLAGS2",
-    [MISCREG_SPMPFLAGS3]    = "SPMPFLAGS3",
-    [MISCREG_SPMPFLAGS4]    = "SPMPFLAGS4",
-    [MISCREG_SPMPFLAGS5]    = "SPMPFLAGS5",
-    [MISCREG_SPMPFLAGS6]    = "SPMPFLAGS6",
-    [MISCREG_SPMPFLAGS7]    = "SPMPFLAGS7",
 
     // following are rv32 only registers
     [MISCREG_MSTATUSH]      = "MSTATUSH",
@@ -917,33 +893,6 @@ ISA::readMiscReg(RegIndex idx)
             return readMiscRegNoEffect(idx);
         }
 
-      case MISCREG_SPMPFLAGS0 ... MISCREG_SPMPFLAGS7:
-        {
-            auto mmu = dynamic_cast<RiscvISA::MMU *>(tc->getMMUPtr());
-            if (mmu && mmu->getTimberV()) {
-                return mmu->getTimberV()->getFlags(idx - MISCREG_SPMPFLAGS0);
-            }
-            return readMiscRegNoEffect(idx);
-        }
-
-      case MISCREG_SPMPBASE0 ... MISCREG_SPMPBASE7:
-        {
-            auto mmu = dynamic_cast<RiscvISA::MMU *>(tc->getMMUPtr());
-            if (mmu && mmu->getTimberV()) {
-                return mmu->getTimberV()->getBase(idx - MISCREG_SPMPBASE0);
-            }
-            return readMiscRegNoEffect(idx);
-        }
-
-      case MISCREG_SPMPBOUND0 ... MISCREG_SPMPBOUND7:
-        {
-            auto mmu = dynamic_cast<RiscvISA::MMU *>(tc->getMMUPtr());
-            if (mmu && mmu->getTimberV()) {
-                return mmu->getTimberV()->getBound(idx - MISCREG_SPMPBOUND0);
-            }
-            return readMiscRegNoEffect(idx);
-        }
-
       default:
         // Try reading HPM counters
         // As a placeholder, all HPM counters are just cycle counters
@@ -1082,42 +1031,6 @@ ISA::setMiscReg(RegIndex idx, RegVal val)
                 auto pmp = static_cast<MMU *>(tc->getMMUPtr())->getPMP();
                 uint32_t pmp_index = idx-MISCREG_PMPADDR00;
                 pmp->pmpUpdateAddr(pmp_index, val);
-            } break;
-          case MISCREG_SPMPBASE0 ... MISCREG_SPMPBASE7:
-            {
-                auto mmu = dynamic_cast<RiscvISA::MMU *>(tc->getMMUPtr());
-                uint32_t spmp_index = idx - MISCREG_SPMPBASE0;
-                auto prv = (PrivilegeMode)readMiscRegNoEffect(MISCREG_PRV);
-                if (mmu && mmu->getTimberV()) {
-                    mmu->getTimberV()->updateBase(spmp_index, val, prv);
-                    setMiscRegNoEffect(idx, mmu->getTimberV()->getBase(spmp_index));
-                } else {
-                    setMiscRegNoEffect(idx, val);
-                }
-            } break;
-          case MISCREG_SPMPBOUND0 ... MISCREG_SPMPBOUND7:
-            {
-                auto mmu = dynamic_cast<RiscvISA::MMU *>(tc->getMMUPtr());
-                uint32_t spmp_index = idx - MISCREG_SPMPBOUND0;
-                auto prv = (PrivilegeMode)readMiscRegNoEffect(MISCREG_PRV);
-                if (mmu && mmu->getTimberV()) {
-                    mmu->getTimberV()->updateBound(spmp_index, val, prv);
-                    setMiscRegNoEffect(idx, mmu->getTimberV()->getBound(spmp_index));
-                } else {
-                    setMiscRegNoEffect(idx, val);
-                }
-            } break;
-          case MISCREG_SPMPFLAGS0 ... MISCREG_SPMPFLAGS7:
-            {
-                auto mmu = dynamic_cast<RiscvISA::MMU *>(tc->getMMUPtr());
-                uint32_t spmp_index = idx - MISCREG_SPMPFLAGS0;
-                auto prv = (PrivilegeMode)readMiscRegNoEffect(MISCREG_PRV);
-                if (mmu && mmu->getTimberV()) {
-                    mmu->getTimberV()->updateFlags(spmp_index, val, prv);
-                    setMiscRegNoEffect(idx, mmu->getTimberV()->getFlags(spmp_index));
-                } else {
-                    setMiscRegNoEffect(idx, val);
-                }
             } break;
           case MISCREG_STTCB:
             {

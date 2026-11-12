@@ -7,5 +7,3 @@ class TimberV(SimObject):
     type = "TimberV"
     cxx_header = "arch/riscv/timberv.hh"
     cxx_class = "gem5::RiscvISA::TimberV"
-
-    num_slots = Param.Int(8, "Number of Timber-V hardware protection slots")
