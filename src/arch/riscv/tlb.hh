@@ -38,6 +38,7 @@
 #include "arch/riscv/isa.hh"
 #include "arch/riscv/pagetable.hh"
 #include "arch/riscv/pma_checker.hh"
+#include "arch/riscv/timberv.hh"
 #include "arch/riscv/regs/misc.hh"
 #include "arch/riscv/utility.hh"
 #include "base/statistics.hh"
@@ -115,6 +116,7 @@ class TLB : public BaseTLB
   public:
     BasePMAChecker *pma;
     PMP *pmp;
+    TimberV *timberv;
 
   public:
     typedef RiscvTLBParams Params;

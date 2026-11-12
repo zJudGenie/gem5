@@ -35,6 +35,7 @@
 #include "arch/riscv/isa.hh"
 #include "arch/riscv/mmu.hh"
 #include "arch/riscv/pmp.hh"
+#include "arch/riscv/timberv.hh"
 #include "arch/riscv/regs/misc.hh"
 #include "arch/riscv/utility.hh"
 #include "cpu/base.hh"
@@ -128,15 +129,15 @@ RiscvFault::invoke(ThreadContext *tc, const StaticInstPtr &inst)
         }
 
         auto mmu = dynamic_cast<RiscvISA::MMU *>(tc->getMMUPtr());
-        PMP *pmp = mmu ? mmu->getPMP() : nullptr;
-        bool in_secure = pmp && (pmp->getSecLevel() == 1);
+        auto timberv = mmu ? mmu->getTimberV() : nullptr;
+        bool in_secure = timberv && (timberv->getSecLevel() == 1);
 
-        if (pmp) {
-            pmp->notifyInterrupt(pp);
+        if (timberv) {
+            timberv->notifyInterrupt(pp);
             if (in_secure) {
-                pmp->setSecLevel(0);
-                tc->setMiscRegNoEffect(MISCREG_MTSTATUS, pmp->getMtstatus());
-                tc->setMiscRegNoEffect(MISCREG_STSTATUS, pmp->getMtstatus());
+                timberv->setSecLevel(0);
+                tc->setMiscRegNoEffect(MISCREG_MTSTATUS, timberv->getMtstatus());
+                tc->setMiscRegNoEffect(MISCREG_STSTATUS, timberv->getMtstatus());
                 if (mmu) {
                     mmu->flushAll();
                 }

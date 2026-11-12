@@ -43,6 +43,8 @@
 #include "arch/riscv/pagetable.hh"
 #include "arch/riscv/pcstate.hh"
 #include "arch/riscv/pmp.hh"
+#include "arch/riscv/spmp.hh"
+#include "arch/riscv/timberv.hh"
 #include "arch/riscv/regs/float.hh"
 #include "arch/riscv/regs/int.hh"
 #include "arch/riscv/regs/misc.hh"
@@ -899,8 +901,8 @@ ISA::readMiscReg(RegIndex idx)
       case MISCREG_STSTATUS:
         {
             auto mmu = dynamic_cast<RiscvISA::MMU *>(tc->getMMUPtr());
-            if (mmu && mmu->getPMP()) {
-                return mmu->getPMP()->getMtstatus();
+            if (mmu && mmu->getTimberV()) {
+                return mmu->getTimberV()->getMtstatus();
             }
             return readMiscRegNoEffect(idx);
         }
@@ -909,8 +911,8 @@ ISA::readMiscReg(RegIndex idx)
       case MISCREG_STTCB:
         {
             auto mmu = dynamic_cast<RiscvISA::MMU *>(tc->getMMUPtr());
-            if (mmu && mmu->getPMP()) {
-                return mmu->getPMP()->getTtcb();
+            if (mmu && mmu->getTimberV()) {
+                return mmu->getTimberV()->getTtcb();
             }
             return readMiscRegNoEffect(idx);
         }
@@ -918,8 +920,8 @@ ISA::readMiscReg(RegIndex idx)
       case MISCREG_SPMPFLAGS0 ... MISCREG_SPMPFLAGS7:
         {
             auto mmu = dynamic_cast<RiscvISA::MMU *>(tc->getMMUPtr());
-            if (mmu && mmu->getPMP()) {
-                return mmu->getPMP()->spmpGetFlags(idx - MISCREG_SPMPFLAGS0);
+            if (mmu && mmu->getTimberV()) {
+                return mmu->getTimberV()->getFlags(idx - MISCREG_SPMPFLAGS0);
             }
             return readMiscRegNoEffect(idx);
         }
@@ -927,8 +929,8 @@ ISA::readMiscReg(RegIndex idx)
       case MISCREG_SPMPBASE0 ... MISCREG_SPMPBASE7:
         {
             auto mmu = dynamic_cast<RiscvISA::MMU *>(tc->getMMUPtr());
-            if (mmu && mmu->getPMP()) {
-                return mmu->getPMP()->spmpGetBase(idx - MISCREG_SPMPBASE0);
+            if (mmu && mmu->getTimberV()) {
+                return mmu->getTimberV()->getBase(idx - MISCREG_SPMPBASE0);
             }
             return readMiscRegNoEffect(idx);
         }
@@ -936,8 +938,8 @@ ISA::readMiscReg(RegIndex idx)
       case MISCREG_SPMPBOUND0 ... MISCREG_SPMPBOUND7:
         {
             auto mmu = dynamic_cast<RiscvISA::MMU *>(tc->getMMUPtr());
-            if (mmu && mmu->getPMP()) {
-                return mmu->getPMP()->spmpGetBound(idx - MISCREG_SPMPBOUND0);
+            if (mmu && mmu->getTimberV()) {
+                return mmu->getTimberV()->getBound(idx - MISCREG_SPMPBOUND0);
             }
             return readMiscRegNoEffect(idx);
         }
@@ -1086,35 +1088,47 @@ ISA::setMiscReg(RegIndex idx, RegVal val)
                 auto mmu = dynamic_cast<RiscvISA::MMU *>(tc->getMMUPtr());
                 uint32_t spmp_index = idx - MISCREG_SPMPBASE0;
                 auto prv = (PrivilegeMode)readMiscRegNoEffect(MISCREG_PRV);
-                mmu->getPMP()->spmpUpdateBase(spmp_index, val, prv);
-                setMiscRegNoEffect(idx, mmu->getPMP()->spmpGetBase(spmp_index));
+                if (mmu && mmu->getTimberV()) {
+                    mmu->getTimberV()->updateBase(spmp_index, val, prv);
+                    setMiscRegNoEffect(idx, mmu->getTimberV()->getBase(spmp_index));
+                } else {
+                    setMiscRegNoEffect(idx, val);
+                }
             } break;
           case MISCREG_SPMPBOUND0 ... MISCREG_SPMPBOUND7:
             {
                 auto mmu = dynamic_cast<RiscvISA::MMU *>(tc->getMMUPtr());
                 uint32_t spmp_index = idx - MISCREG_SPMPBOUND0;
                 auto prv = (PrivilegeMode)readMiscRegNoEffect(MISCREG_PRV);
-                mmu->getPMP()->spmpUpdateBound(spmp_index, val, prv);
-                setMiscRegNoEffect(idx, mmu->getPMP()->spmpGetBound(spmp_index));
+                if (mmu && mmu->getTimberV()) {
+                    mmu->getTimberV()->updateBound(spmp_index, val, prv);
+                    setMiscRegNoEffect(idx, mmu->getTimberV()->getBound(spmp_index));
+                } else {
+                    setMiscRegNoEffect(idx, val);
+                }
             } break;
           case MISCREG_SPMPFLAGS0 ... MISCREG_SPMPFLAGS7:
             {
                 auto mmu = dynamic_cast<RiscvISA::MMU *>(tc->getMMUPtr());
                 uint32_t spmp_index = idx - MISCREG_SPMPFLAGS0;
                 auto prv = (PrivilegeMode)readMiscRegNoEffect(MISCREG_PRV);
-                mmu->getPMP()->spmpUpdateFlags(spmp_index, val, prv);
-                setMiscRegNoEffect(idx, mmu->getPMP()->spmpGetFlags(spmp_index));
+                if (mmu && mmu->getTimberV()) {
+                    mmu->getTimberV()->updateFlags(spmp_index, val, prv);
+                    setMiscRegNoEffect(idx, mmu->getTimberV()->getFlags(spmp_index));
+                } else {
+                    setMiscRegNoEffect(idx, val);
+                }
             } break;
           case MISCREG_STTCB:
             {
                 auto mmu = dynamic_cast<RiscvISA::MMU *>(tc->getMMUPtr());
                 auto prv = (PrivilegeMode)readMiscRegNoEffect(MISCREG_PRV);
-                if (prv == PRV_S && mmu && mmu->getPMP() && mmu->getPMP()->getSecLevel() == 0) {
+                if (prv == PRV_S && mmu && mmu->getTimberV() && mmu->getTimberV()->getSecLevel() == 0) {
                     warn("Cannot set STTCB from SN mode @ pc %#x\n", tc->pcState().instAddr());
                     return;
                 }
-                if (mmu && mmu->getPMP()) {
-                    mmu->getPMP()->updateTtcb(val);
+                if (mmu && mmu->getTimberV()) {
+                    mmu->getTimberV()->updateTtcb(val);
                 }
                 setMiscRegNoEffect(idx, val);
                 setMiscRegNoEffect(MISCREG_MTTCB, val);
@@ -1122,8 +1136,8 @@ ISA::setMiscReg(RegIndex idx, RegVal val)
           case MISCREG_MTTCB:
             {
                 auto mmu = dynamic_cast<RiscvISA::MMU *>(tc->getMMUPtr());
-                if (mmu && mmu->getPMP()) {
-                    mmu->getPMP()->updateTtcb(val);
+                if (mmu && mmu->getTimberV()) {
+                    mmu->getTimberV()->updateTtcb(val);
                 }
                 setMiscRegNoEffect(idx, val);
                 setMiscRegNoEffect(MISCREG_STTCB, val);
@@ -1132,13 +1146,13 @@ ISA::setMiscReg(RegIndex idx, RegVal val)
             {
                 auto mmu = dynamic_cast<RiscvISA::MMU *>(tc->getMMUPtr());
                 auto prv = (PrivilegeMode)readMiscRegNoEffect(MISCREG_PRV);
-                if (prv == PRV_S && mmu && mmu->getPMP() && mmu->getPMP()->getSecLevel() == 0) {
+                if (prv == PRV_S && mmu && mmu->getTimberV() && mmu->getTimberV()->getSecLevel() == 0) {
                     warn("Cannot set STSTATUS from SN mode @ pc %#x\n", tc->pcState().instAddr());
                     return;
                 }
-                if (mmu && mmu->getPMP()) {
-                    mmu->getPMP()->setMtstatus(val);
-                    RegVal new_status = mmu->getPMP()->getMtstatus();
+                if (mmu && mmu->getTimberV()) {
+                    mmu->getTimberV()->setMtstatus(val);
+                    RegVal new_status = mmu->getTimberV()->getMtstatus();
                     setMiscRegNoEffect(idx, new_status);
                     setMiscRegNoEffect(MISCREG_MTSTATUS, new_status);
                 } else {
@@ -1148,9 +1162,9 @@ ISA::setMiscReg(RegIndex idx, RegVal val)
           case MISCREG_MTSTATUS:
             {
                 auto mmu = dynamic_cast<RiscvISA::MMU *>(tc->getMMUPtr());
-                if (mmu && mmu->getPMP()) {
-                    mmu->getPMP()->setMtstatus(val);
-                    RegVal new_status = mmu->getPMP()->getMtstatus();
+                if (mmu && mmu->getTimberV()) {
+                    mmu->getTimberV()->setMtstatus(val);
+                    RegVal new_status = mmu->getTimberV()->getMtstatus();
                     setMiscRegNoEffect(idx, new_status);
                     setMiscRegNoEffect(MISCREG_STSTATUS, new_status);
                 } else {

@@ -61,3 +61,4 @@ class RiscvTLB(BaseTLB):
     # Grab the pma_checker from the MMU
     pma_checker = Param.BasePMAChecker(Parent.any, "PMA Checker")
     pmp = Param.PMP(Parent.any, "Physical Memory Protection Unit")
+    timberv = Param.TimberV(Parent.any, "Timber-V Security Unit")

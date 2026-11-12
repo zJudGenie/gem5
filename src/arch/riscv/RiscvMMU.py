@@ -40,6 +40,7 @@ from m5.objects.PMAChecker import PMAChecker
 from m5.objects.PMP import PMP
 from m5.objects.RiscvTLB import RiscvTLB
 from m5.objects.SPMP import SPMP
+from m5.objects.TimberV import TimberV
 from m5.params import *
 from m5.proxy import Parent
 
@@ -63,6 +64,7 @@ class RiscvMMU(BaseMMU):
         ),
         "Supervisor Physical Memory Protection Unit",
     )
+    timberv = Param.TimberV(TimberV(), "Timber-V Security Unit")
 
     @classmethod
     def walkerPorts(cls):

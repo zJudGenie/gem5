@@ -44,6 +44,7 @@
 #include "arch/riscv/pma_checker.hh"
 #include "arch/riscv/pmp.hh"
 #include "arch/riscv/spmp.hh"
+#include "arch/riscv/timberv.hh"
 #include "arch/riscv/tlb.hh"
 
 #include "base/logging.hh"
@@ -80,6 +81,8 @@ class MMU : public BaseMMU
         // Reset PMP Cfg
         getPMP()->pmpReset();
         getSPMP()->spmpReset();
+        if (getTimberV())
+            getTimberV()->reset();
     }
 
     Addr
@@ -134,6 +137,12 @@ class MMU : public BaseMMU
 
     /** Return the shared backend for supervisor indirect CSR programming. */
     SPMP *getSPMP() const { return spmp; }
+
+    TimberV *
+    getTimberV() const
+    {
+        return static_cast<TLB*>(dtb)->timberv;
+    }
 
     /** Bind the first hart profile and reject inconsistent shared-MMU users. */
     void

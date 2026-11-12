@@ -677,10 +677,10 @@ def template StoreCtExecute {{
 
             // Timber-V Table I: Tag update authorization policy
             auto mmu = dynamic_cast<RiscvISA::MMU *>(xc->tcBase()->getMMUPtr());
-            auto pmp = mmu ? mmu->getPMP() : nullptr;
-            if (pmp && pmp->isTimberVActive()) {
+            auto timberv = mmu ? mmu->getTimberV() : nullptr;
+            if (timberv && timberv->isTimberVActive()) {
                 auto prv = (PrivilegeMode)xc->readMiscReg(MISCREG_PRV);
-                uint8_t sec_level = pmp->getSecLevel();
+                uint8_t sec_level = timberv->getSecLevel();
                 uint64_t ntag = (uint64_t)((machInst >> 28) & 0x3);
 
                 if (sec_level != 1 && prv != PrivilegeMode::PRV_M) {
@@ -748,10 +748,10 @@ def template StoreCtInitiateAcc {{
 
             // Timber-V Table I: Tag update authorization policy
             auto mmu = dynamic_cast<RiscvISA::MMU *>(xc->tcBase()->getMMUPtr());
-            auto pmp = mmu ? mmu->getPMP() : nullptr;
-            if (pmp && pmp->isTimberVActive()) {
+            auto timberv = mmu ? mmu->getTimberV() : nullptr;
+            if (timberv && timberv->isTimberVActive()) {
                 auto prv = (PrivilegeMode)xc->readMiscReg(MISCREG_PRV);
-                uint8_t sec_level = pmp->getSecLevel();
+                uint8_t sec_level = timberv->getSecLevel();
                 uint64_t ntag = (uint64_t)((machInst >> 28) & 0x3);
 
                 if (sec_level != 1 && prv != PrivilegeMode::PRV_M) {
