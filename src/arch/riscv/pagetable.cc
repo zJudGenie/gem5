@@ -47,6 +47,14 @@ TlbEntry::serialize(CheckpointOut &cp) const
     SERIALIZE_SCALAR(asid);
     SERIALIZE_SCALAR(pte);
     SERIALIZE_SCALAR(lruSeq);
+    SERIALIZE_SCALAR(tagValid);
+    SERIALIZE_SCALAR(e);
+    SERIALIZE_SCALAR(imm);
+    SERIALIZE_SCALAR(hpce);
+    SERIALIZE_SCALAR(pageType);
+    SERIALIZE_SCALAR(eid);
+    SERIALIZE_SCALAR(mpk);
+    SERIALIZE_SCALAR(tagPtePerms);
 }
 
 void
@@ -58,6 +66,14 @@ TlbEntry::unserialize(CheckpointIn &cp)
     UNSERIALIZE_SCALAR(asid);
     UNSERIALIZE_SCALAR(pte);
     UNSERIALIZE_SCALAR(lruSeq);
+    UNSERIALIZE_SCALAR(tagValid);
+    UNSERIALIZE_SCALAR(e);
+    UNSERIALIZE_SCALAR(imm);
+    UNSERIALIZE_SCALAR(hpce);
+    UNSERIALIZE_SCALAR(pageType);
+    UNSERIALIZE_SCALAR(eid);
+    UNSERIALIZE_SCALAR(mpk);
+    UNSERIALIZE_SCALAR(tagPtePerms);
 }
 
 Addr

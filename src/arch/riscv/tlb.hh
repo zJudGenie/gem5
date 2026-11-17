@@ -121,6 +121,8 @@ class TLB : public BaseTLB
     TLB(const Params &p);
 
     Walker *getWalker();
+    size_t getSize() const { return size; }
+    uint64_t readTagEntry(uint64_t idx, bool highWord) const;
 
     void takeOverFrom(BaseTLB *old) override {}
 
@@ -140,6 +142,10 @@ class TLB : public BaseTLB
                             Addr vaddr, BaseMMU::Mode mode, PTESv39 pte,
                             Addr gvaddr = 0x0,
                             XlateStage stage = XlateStage::FIRST_STAGE);
+
+    Fault checkSpearVPermissions(const TlbEntry *entry, Addr vaddr,
+                                 BaseMMU::Mode mode, ThreadContext *tc,
+                                 PrivilegeMode priv) const;
 
     Fault createPagefault(Addr vaddr, BaseMMU::Mode mode, Addr gvaddr = 0x0,
                           bool gpf = false, bool virt = false);

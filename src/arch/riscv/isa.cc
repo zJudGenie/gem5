@@ -47,7 +47,9 @@
 #include "arch/riscv/regs/int.hh"
 #include "arch/riscv/regs/misc.hh"
 #include "arch/riscv/regs/vector.hh"
+#include "arch/riscv/spearv.hh"
 #include "arch/riscv/system.hh"
+#include "arch/riscv/tlb.hh"
 #include "base/bitfield.hh"
 #include "base/compiler.hh"
 #include "base/logging.hh"
@@ -283,6 +285,18 @@ const std::array<const char *, NUM_MISCREGS> MiscRegNames = {{
     [MISCREG_HPMCOUNTER31H]  = "HPMCOUNTER31H",
 
     [MISCREG_JVT] = "JVT",
+
+    [MISCREG_U_TAG_SIZE]         = "U_TAG_SIZE",
+    [MISCREG_U_TAG_MODE]         = "U_TAG_MODE",
+    [MISCREG_U_TAG_STORAGE_BASE] = "U_TAG_STORAGE_BASE",
+    [MISCREG_U_MPKEY_CONFIG]     = "U_MPKEY_CONFIG",
+    [MISCREG_U_EAM]              = "U_EAM",
+    [MISCREG_U_MEID]             = "U_MEID",
+    [MISCREG_U_TLB_SIZE]         = "U_TLB_SIZE",
+    [MISCREG_U_EMP]              = "U_EMP",
+    [MISCREG_U_TCS]              = "U_TCS",
+    [MISCREG_U_TAG_CONTROL]      = "U_TAG_CONTROL",
+    [MISCREG_U_TAG_DRAM_BASE]    = "U_TAG_DRAM_BASE",
 
     [MISCREG_FFLAGS_EXE]    = "FFLAGS_EXE",
 }};
@@ -674,6 +688,35 @@ ISA::readMiscReg(RegIndex idx)
             return readMiscRegNoEffect(MISCREG_FFLAGS) & FFLAGS_MASK;
         }
 
+      case MISCREG_U_TAG_SIZE:
+        {
+            switch (readMiscRegNoEffect(MISCREG_U_TAG_MODE)) {
+              case MTAG32:
+                return 32;
+              case MTAG64:
+                return 64;
+              case MTAG128:
+                return 128;
+              case MTAG0:
+              default:
+                return 0;
+            }
+        }
+
+      case MISCREG_U_TLB_SIZE:
+        {
+            if (tc) {
+                if (auto *mmu =
+                        dynamic_cast<RiscvISA::MMU *>(tc->getMMUPtr())) {
+                    if (auto *dtb =
+                            dynamic_cast<RiscvISA::TLB *>(mmu->dtb)) {
+                        return dtb->getSize();
+                    }
+                }
+            }
+            return 0;
+        }
+
       default:
         // Try reading HPM counters
         // As a placeholder, all HPM counters are just cycle counters
@@ -976,6 +1019,29 @@ ISA::setMiscReg(RegIndex idx, RegVal val)
                 setMiscRegNoEffect(MISCREG_FFLAGS, new_val);
             }
             break;
+
+          case MISCREG_U_TAG_SIZE:
+          case MISCREG_U_TLB_SIZE:
+            // Read-only CSRs (u_tag_size ignores writes; u_tlb_size traps in
+            // CSRExecute, no-op here defensively).
+            break;
+          case MISCREG_U_TAG_MODE:
+            setMiscRegNoEffect(idx, bits(val, 1, 0));
+            break;
+          case MISCREG_U_EAM:
+            setMiscRegNoEffect(idx, bits(val, 1, 0));
+            break;
+          case MISCREG_U_MEID:
+            setMiscRegNoEffect(idx, bits(val, 15, 0));
+            break;
+          case MISCREG_U_TAG_CONTROL:
+            setMiscRegNoEffect(idx, bits(val, 3, 0));
+            break;
+          case MISCREG_U_TAG_DRAM_BASE:
+          case MISCREG_U_MPKEY_CONFIG:
+            setMiscRegNoEffect(idx, bits(val, 43, 0));
+            break;
+
           default:
             setMiscRegNoEffect(idx, val);
         }

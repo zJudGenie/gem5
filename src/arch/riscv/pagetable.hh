@@ -112,6 +112,16 @@ struct TlbEntry : public Serializable
     // A sequence number to keep track of LRU.
     uint64_t lruSeq;
 
+    // SPEAR-V security metadata
+    bool tagValid = false;
+    bool e = false;
+    bool imm = false;
+    bool hpce = false;
+    uint8_t pageType = 0;
+    uint16_t eid = 0;
+    uint16_t mpk = 0;
+    uint8_t tagPtePerms = 0;
+
     TlbEntry()
         : paddr(0), vaddr(0), logBytes(0), pte(), gpte(), lruSeq(0)
     {}
@@ -125,6 +135,11 @@ struct TlbEntry : public Serializable
     void reset()
     {
         paddr = vaddr = logBytes = pte = gpte = lruSeq = 0;
+        tagValid = e = imm = hpce = false;
+        pageType = 0;
+        eid = 0;
+        mpk = 0;
+        tagPtePerms = 0;
     }
 
     void serialize(CheckpointOut &cp) const override;

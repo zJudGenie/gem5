@@ -292,6 +292,19 @@ enum MiscRegIndex
     MISCREG_HPMCOUNTER31H,
     MISCREG_JVT,
 
+    // SPEAR-V custom memory tagging CSRs
+    MISCREG_U_TAG_SIZE,
+    MISCREG_U_TAG_MODE,
+    MISCREG_U_TAG_STORAGE_BASE,
+    MISCREG_U_MPKEY_CONFIG,
+    MISCREG_U_EAM,
+    MISCREG_U_MEID,
+    MISCREG_U_TLB_SIZE,
+    MISCREG_U_EMP,
+    MISCREG_U_TCS,
+    MISCREG_U_TAG_CONTROL,
+    MISCREG_U_TAG_DRAM_BASE,
+
     NUM_PHYS_MISCREGS,
     MISCREG_FFLAGS_EXE = NUM_PHYS_MISCREGS,
 
@@ -573,9 +586,22 @@ enum CSRIndex
     CSR_VSCAUSE   = 0x242,
     CSR_VSTVAL    = 0x243,
     CSR_VSIP      = 0x244,
-    CSR_VSATP     = 0x280
+    CSR_VSATP     = 0x280,
 
     // H-extension (RV64) CSRs end here
+
+    // SPEAR-V custom memory tagging CSRs
+    CSR_U_TAG_SIZE         = 0x066,
+    CSR_U_TAG_MODE         = 0x067,
+    CSR_U_TAG_STORAGE_BASE = 0x068,
+    CSR_U_MPKEY_CONFIG     = 0x069,
+    CSR_U_EAM              = 0x070,
+    CSR_U_MEID             = 0x071,
+    CSR_U_TLB_SIZE         = 0x072,
+    CSR_U_EMP              = 0x073,
+    CSR_U_TCS              = 0x074,
+    CSR_U_TAG_CONTROL      = 0x075,
+    CSR_U_TAG_DRAM_BASE    = 0x076
 };
 
 struct CSRMetadata
@@ -1321,6 +1347,37 @@ const std::unordered_map<int, CSRMetadata> CSRData = {
     {CSR_VSATP,
         {"vsatp", MISCREG_VSATP, rvTypeFlags(RV64),
         isaExtsFlags('h')}},
+
+    // SPEAR-V custom memory tagging CSRs
+    {CSR_U_TAG_SIZE,
+        {"u_tag_size", MISCREG_U_TAG_SIZE, rvTypeFlags(RV64, RV32),
+         isaExtsFlags()}},
+    {CSR_U_TAG_MODE,
+        {"u_tag_mode", MISCREG_U_TAG_MODE, rvTypeFlags(RV64, RV32),
+         isaExtsFlags()}},
+    {CSR_U_TAG_STORAGE_BASE,
+        {"u_tag_storage_base", MISCREG_U_TAG_STORAGE_BASE,
+         rvTypeFlags(RV64, RV32), isaExtsFlags()}},
+    {CSR_U_MPKEY_CONFIG,
+        {"u_mpkey_config", MISCREG_U_MPKEY_CONFIG, rvTypeFlags(RV64, RV32),
+         isaExtsFlags()}},
+    {CSR_U_EAM,
+        {"u_eam", MISCREG_U_EAM, rvTypeFlags(RV64, RV32), isaExtsFlags()}},
+    {CSR_U_MEID,
+        {"u_meid", MISCREG_U_MEID, rvTypeFlags(RV64, RV32), isaExtsFlags()}},
+    {CSR_U_TLB_SIZE,
+        {"u_tlb_size", MISCREG_U_TLB_SIZE, rvTypeFlags(RV64, RV32),
+         isaExtsFlags()}},
+    {CSR_U_EMP,
+        {"u_emp", MISCREG_U_EMP, rvTypeFlags(RV64, RV32), isaExtsFlags()}},
+    {CSR_U_TCS,
+        {"u_tcs", MISCREG_U_TCS, rvTypeFlags(RV64, RV32), isaExtsFlags()}},
+    {CSR_U_TAG_CONTROL,
+        {"u_tag_control", MISCREG_U_TAG_CONTROL, rvTypeFlags(RV64, RV32),
+         isaExtsFlags()}},
+    {CSR_U_TAG_DRAM_BASE,
+        {"u_tag_dram_base", MISCREG_U_TAG_DRAM_BASE,
+         rvTypeFlags(RV64, RV32), isaExtsFlags()}},
 };
 
 /**

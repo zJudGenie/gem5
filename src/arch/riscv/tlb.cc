@@ -42,11 +42,13 @@
 #include "arch/riscv/pma_checker.hh"
 #include "arch/riscv/pmp.hh"
 #include "arch/riscv/pra_constants.hh"
+#include "arch/riscv/spearv.hh"
 #include "arch/riscv/utility.hh"
 #include "base/inifile.hh"
 #include "base/str.hh"
 #include "base/trace.hh"
 #include "cpu/thread_context.hh"
+#include "debug/SpearV.hh"
 #include "debug/TLB.hh"
 #include "debug/TLBVerbose.hh"
 #include "mem/page_table.hh"
@@ -161,7 +163,18 @@ TLB::insert(Addr vpn, const TlbEntry &entry)
     TlbEntry *newEntry = lookup(vpn, entry.asid, BaseMMU::Read, true);
     if (newEntry) {
         // update PTE flags (maybe we set the dirty/writable flag)
+        // and refresh SPEAR-V security metadata
         newEntry->pte = entry.pte;
+        newEntry->paddr = entry.paddr;
+        newEntry->gpte = entry.gpte;
+        newEntry->tagValid = entry.tagValid;
+        newEntry->e = entry.e;
+        newEntry->imm = entry.imm;
+        newEntry->hpce = entry.hpce;
+        newEntry->pageType = entry.pageType;
+        newEntry->eid = entry.eid;
+        newEntry->mpk = entry.mpk;
+        newEntry->tagPtePerms = entry.tagPtePerms;
         assert(newEntry->vaddr == entry.vaddr);
         assert(newEntry->asid == entry.asid);
         assert(newEntry->logBytes == entry.logBytes);
@@ -327,6 +340,134 @@ TLB::createPagefault(Addr vaddr, BaseMMU::Mode mode,
     return std::make_shared<AddressFault>(vaddr, code, gvaddr, virt);
 }
 
+Fault
+TLB::checkSpearVPermissions(const TlbEntry *entry, Addr vaddr,
+                            BaseMMU::Mode mode, ThreadContext *tc,
+                            PrivilegeMode priv) const
+{
+    // 1. Bypass: M-mode, null context/entry, untagged entry, or MTAG0
+    if (priv == PRV_M || !tc || !entry || !entry->tagValid) {
+        return NoFault;
+    }
+
+    const TagMode tag_mode = static_cast<TagMode>(
+        bits(tc->readMiscRegNoEffect(MISCREG_U_TAG_MODE), 1, 0));
+    if (tag_mode == MTAG0) {
+        return NoFault;
+    }
+
+    const uint64_t tag_control =
+        tc->readMiscRegNoEffect(MISCREG_U_TAG_CONTROL) & TAG_CTRL_MASK;
+
+    // 2. Immutable write fault
+    if (!(tag_control & TAG_CTRL_DISABLE_IMM_WRITE_CHECK) &&
+        mode == BaseMMU::Write && entry->imm) {
+        DPRINTF(SpearV,
+                "Immutable write fault: vaddr=%#x paddr=%#x\n",
+                vaddr, entry->paddr);
+        return std::make_shared<AddressFault>(
+            vaddr, ExceptionCode::ENCLAVE_ACCESS_FAULT);
+    }
+
+    // 3. PT_MONITOR unconditional blocking for non-M modes
+    if (entry->pageType == PT_MONITOR) {
+        DPRINTF(SpearV,
+                "PT_MONITOR access blocked: vaddr=%#x paddr=%#x\n",
+                vaddr, entry->paddr);
+        return std::make_shared<AddressFault>(
+            vaddr, ExceptionCode::ENCLAVE_ACCESS_FAULT);
+    }
+
+    // 4. MTAG128 MPK check
+    if (tag_mode == MTAG128 &&
+        !(tag_control & TAG_CTRL_DISABLE_TAG_COMPARE_CHECKS)) {
+        const uint64_t mpkey_raw = bits(
+            tc->readMiscRegNoEffect(MISCREG_U_MPKEY_CONFIG), 43, 0);
+        const MpKeyConfig mpkey_cfg(mpkey_raw);
+        if (!mpkey_cfg.matches(entry->mpk, mode == BaseMMU::Write)) {
+            DPRINTF(SpearV,
+                    "MPK mismatch: vaddr=%#x mpk=%#x write=%d cfg=%#x\n",
+                    vaddr, entry->mpk, mode == BaseMMU::Write, mpkey_raw);
+            return std::make_shared<AddressFault>(
+                vaddr, ExceptionCode::MPKEY_MISMATCH_FAULT);
+        }
+    }
+
+    // 5. Enclave isolation / EAM / MEID checks
+    if (!(tag_control & TAG_CTRL_DISABLE_TAG_COMPARE_CHECKS)) {
+        const uint16_t meid = static_cast<uint16_t>(
+            bits(tc->readMiscRegNoEffect(MISCREG_U_MEID), 15, 0));
+        const EnclaveAccessMode eam = static_cast<EnclaveAccessMode>(
+            bits(tc->readMiscRegNoEffect(MISCREG_U_EAM), 1, 0));
+        const bool inside_enclave = (meid != 0);
+
+        bool allowed = false;
+        if (mode == BaseMMU::Execute) {
+            allowed = (!inside_enclave && !entry->e) ||
+                      (inside_enclave && entry->e && meid == entry->eid);
+        } else {
+            allowed = (!inside_enclave && !entry->e) ||
+                      (inside_enclave && entry->e && meid == entry->eid &&
+                       (eam == EAM_ENCLAVE || eam == EAM_NORMAL)) ||
+                      (inside_enclave && !entry->e && eam == EAM_NORMAL);
+        }
+
+        if (!allowed) {
+            DPRINTF(SpearV,
+                    "Enclave access fault: vaddr=%#x mode=%d meid=%#x "
+                    "e=%d eid=%#x eam=%u pageType=%u\n",
+                    vaddr, static_cast<int>(mode), meid, entry->e,
+                    entry->eid, static_cast<unsigned>(eam),
+                    static_cast<unsigned>(entry->pageType));
+            return std::make_shared<AddressFault>(
+                vaddr, ExceptionCode::ENCLAVE_ACCESS_FAULT);
+        }
+    }
+
+    // 6. HPCE huge page fault
+    if (entry->hpce && entry->logBytes > PageShift) {
+        DPRINTF(SpearV,
+                "HPCE fault: vaddr=%#x paddr=%#x logBytes=%u\n",
+                vaddr, entry->paddr, entry->logBytes);
+        return std::make_shared<AddressFault>(
+            vaddr, ExceptionCode::HPCE_FAULT);
+    }
+
+    return NoFault;
+}
+
+uint64_t
+TLB::readTagEntry(uint64_t idx, bool highWord) const
+{
+    if (idx >= size || tlb[idx].trieHandle == nullptr || !tlb[idx].tagValid) {
+        return 0;
+    }
+
+    const TlbEntry &entry = tlb[idx];
+    MemoryTag tag;
+    tag.setId(entry.eid);
+    tag.setPageType(static_cast<PageType>(entry.pageType));
+    tag.setHpce(entry.hpce);
+
+    PageLevel level = PageLevel::PL_INVALID;
+    if (entry.logBytes == PageShift) {
+        level = PageLevel::PL_KILO;
+    } else if (entry.logBytes == PageShift + SV39_LEVEL_BITS) {
+        level = PageLevel::PL_MEGA;
+    } else if (entry.logBytes == PageShift + 2 * SV39_LEVEL_BITS) {
+        level = PageLevel::PL_GIGA;
+    }
+    tag.setPageLevel(level);
+
+    tag.setValidated(false);
+    tag.setImmutable(entry.imm);
+    tag.setVpn(getVPNFromVAddr(entry.vaddr, AddrXlateMode::SV39));
+    tag.setPtePerms(entry.tagPtePerms);
+    tag.setMpk(entry.mpk);
+
+    return highWord ? tag.hi : tag.lo;
+}
+
 Addr
 TLB::hiddenTranslateWithTLB(Addr vaddr, uint16_t asid, Addr xmode,
                             BaseMMU::Mode mode)
@@ -410,6 +551,10 @@ TLB::doTranslate(const RequestPtr &req, ThreadContext *tc,
             fault = checkPermissions(
                 tc, memaccess, vaddr, mode, e->pte);
         }
+    }
+
+    if (fault == NoFault) {
+        fault = checkSpearVPermissions(e, vaddr, mode, tc, memaccess.priv);
     }
 
     // if we want to write and it isn't writable, do a page table walk

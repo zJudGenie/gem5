@@ -83,6 +83,15 @@ enum ExceptionCode : uint64_t
     STORE_GUEST_PAGE = 23,// H-extension
     AMO_GUEST_PAGE = 23,  // H-extension
 
+    // SPEAR-V non-delegable custom exception codes
+    MPKEY_MISMATCH_FAULT = 25,
+    ENCLAVE_ACCESS_FAULT = 26,
+    MEID_MISMATCH_FAULT = 27,
+    ENC_INTEGRITY_FAULT = 28,
+    SATP_MODE_CHANGE = 29,
+    ST_IMM_FAULT = 30,
+    HPCE_FAULT = 31,
+
     INT_SOFTWARE_SUPER = 1,
     INT_SOFTWARE_VIRTUAL_SUPER = 2, // H-extension
     INT_SOFTWARE_MACHINE = 3,

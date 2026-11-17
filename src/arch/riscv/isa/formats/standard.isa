@@ -434,9 +434,19 @@ def template CSRExecute {{
         %(code)s;
 
         if (%(write_cond)s) {
-            if (bits(csr, 11, 10) == 0x3) {
+            if (bits(csr, 11, 10) == 0x3 || csr == CSR_U_TLB_SIZE) {
                 return std::make_shared<IllegalInstFault>(
                         csprintf("CSR %s is read-only\n", csrName), machInst);
+            }
+            if (csr == CSR_SATP && (pm == PRV_S || pm == PRV_HS) &&
+                isa->readMiscRegNoEffect(MISCREG_U_TAG_MODE) != MTAG0) {
+                SATP old_satp = xc->readMiscReg(midx);
+                SATP new_satp = data;
+                if (old_satp.mode != AddrXlateMode::BARE &&
+                    new_satp.mode == AddrXlateMode::BARE) {
+                    return std::make_shared<AddressFault>(
+                        0, ExceptionCode::SATP_MODE_CHANGE);
+                }
             }
             DPRINTF(RiscvMisc, "Writing %#x to CSR %s.\n",
                     data, csrName);
