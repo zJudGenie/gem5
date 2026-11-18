@@ -1333,6 +1333,33 @@ decode QUADRANT default Unknown::unknown() {
             }
         }
 
+        0x02: SystemOp::fence_t({{
+            MISA misa = xc->readMiscReg(MISCREG_ISA);
+            if (!misa.rvs) {
+                return std::make_shared<IllegalInstFault>(
+                    "fence_t can't execute without RVS", machInst);
+            }
+
+            STATUS status = xc->readMiscReg(MISCREG_STATUS);
+            HSTATUS hstatus = xc->readMiscReg(MISCREG_HSTATUS);
+            auto pm = (PrivilegeMode)xc->readMiscReg(MISCREG_PRV);
+
+            if (misa.rvh && virtualizationEnabled(xc) &&
+                (pm == PRV_U || hstatus.vtvm == 1)) {
+                return std::make_shared<VirtualInstFault>(
+                    "fence_t in VU mode or VTVM enabled", machInst);
+            } else if (pm == PRV_U || (pm == PRV_S && status.tvm == 1)) {
+                return std::make_shared<IllegalInstFault>(
+                    "fence_t in user mode or TVM enabled", machInst);
+            }
+
+            uint32_t imm20 = bits(machInst.instBits, 31, 12);
+            if ((imm20 & (1U << 6)) || imm20 != 0) {
+                xc->tcBase()->getMMUPtr()->flushAll();
+            }
+        }}, IsSerializing, IsSerializeAfter, IsNonSpeculative, IsSquashAfter,
+            No_OpClass);
+
         0x03: decode FUNCT3 {
             format FenceOp {
                 0x0: fence({{
@@ -6488,6 +6515,34 @@ decode QUADRANT default Unknown::unknown() {
             }
         }
 
-        0x1e: M5Op::M5Op();
+        0x1e: decode FUNCT3 {
+            0x0: decode M5FUNC {
+                0x0: SystemOp::mtrap({{
+                    return std::make_shared<IllegalInstFault>(
+                        "mtrap", machInst);
+                }}, IsSerializeAfter, IsNonSpeculative, No_OpClass);
+                default: M5Op::M5Op();
+            }
+            0x3: IOp::rdtlb({{
+                if (machInst.rv_type == RV32) {
+                    return std::make_shared<IllegalInstFault>(
+                        "rdtlb requires RV64", machInst);
+                }
+                auto *mmu = xc->tcBase()->getMMUPtr();
+                auto *tlb = mmu ?
+                    static_cast<RiscvISA::TLB *>(mmu->dtb) : nullptr;
+                Rd = tlb ? tlb->readTagEntry(Rs1, bits(imm, 0)) : 0;
+            }}, int64_t, {{ imm = sext<12>(IMM12); }}, IsNonSpeculative);
+            0x4: IOp::ritlb({{
+                if (machInst.rv_type == RV32) {
+                    return std::make_shared<IllegalInstFault>(
+                        "ritlb requires RV64", machInst);
+                }
+                auto *mmu = xc->tcBase()->getMMUPtr();
+                auto *tlb = mmu ?
+                    static_cast<RiscvISA::TLB *>(mmu->itb) : nullptr;
+                Rd = tlb ? tlb->readTagEntry(Rs1, bits(imm, 0)) : 0;
+            }}, int64_t, {{ imm = sext<12>(IMM12); }}, IsNonSpeculative);
+        }
     }
 }

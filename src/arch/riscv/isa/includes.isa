@@ -108,6 +108,7 @@ output exec {{
 #include "arch/riscv/regs/misc.hh"
 #include "arch/riscv/regs/vector.hh"
 #include "arch/riscv/spearv.hh"
+#include "arch/riscv/tlb.hh"
 #include "arch/riscv/utility.hh"
 #include "base/condcodes.hh"
 #include "cpu/base.hh"

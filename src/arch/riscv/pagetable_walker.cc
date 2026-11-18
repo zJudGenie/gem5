@@ -50,18 +50,24 @@
 
 #include "arch/riscv/pagetable_walker.hh"
 
+#include <algorithm>
 #include <memory>
 
 #include "arch/riscv/faults.hh"
 #include "arch/riscv/page_size.hh"
 #include "arch/riscv/pagetable.hh"
+#include "arch/riscv/regs/misc.hh"
+#include "arch/riscv/spearv.hh"
 #include "arch/riscv/tlb.hh"
+#include "base/addr_range.hh"
 #include "base/bitfield.hh"
 #include "base/trie.hh"
 #include "cpu/base.hh"
 #include "cpu/thread_context.hh"
 #include "debug/PageTableWalker.hh"
+#include "debug/SpearV.hh"
 #include "mem/packet_access.hh"
+#include "mem/physical.hh"
 #include "mem/request.hh"
 
 namespace gem5
@@ -189,11 +195,38 @@ Walker::getPort(const std::string &if_name, PortID idx)
         return ClockedObject::getPort(if_name, idx);
 }
 
+Addr
+Walker::getMemEndPaddr()
+{
+    if (!memEndPaddrCached && sys) {
+        Addr maxEnd = 0;
+        for (const auto &range : sys->getPhysMem().getConfAddrRanges()) {
+            if (range.valid()) {
+                maxEnd = std::max(maxEnd, range.end());
+            }
+        }
+        cachedMemEndPaddr = maxEnd;
+        memEndPaddrCached = true;
+    }
+    return cachedMemEndPaddr;
+}
+
 void
 Walker::WalkerState::initState(ThreadContext * _tc,
         BaseMMU::Mode _mode, bool _isTiming)
 {
     assert(state == Ready);
+    delete read;
+    read = nullptr;
+    for (PacketPtr w : writes) {
+        delete w;
+    }
+    writes.clear();
+    inflight = 0;
+    retrying = false;
+    squashed = false;
+    timingFault = NoFault;
+
     started = false;
     tc = _tc;
     mode = _mode;
@@ -224,13 +257,32 @@ Walker::WalkerState::initState(ThreadContext * _tc,
     // will have to go through G-stage
     // assert(satp.mode == AddrXlateMode::SV39);
 
+    entry.reset();
+
     // If functional entry.vaddr will be set
     // in start functional (req == NULL)
-    entry.vaddr = functional ?
-        (Addr)0 :
-        req->getVaddr();
+    origVaddr = functional ? (Addr)0 : req->getVaddr();
+    entry.vaddr = origVaddr;
 
     entry.asid = satp.asid;
+
+    // Reset SPEAR-V state (critical because funcState is reused)
+    tagPhase = ReadPte;
+    tagActive = false;
+    tagMode = MTAG0;
+    tagStorageBase = 0;
+    tagDramBase = 0;
+    tagControl = 0;
+    memEndPaddr = 0;
+    ptImmAccum = true;
+    currentTag.clear();
+    pendingTagLow = 0;
+    savedPte = 0;
+    savedModifiedPte = 0;
+    savedPtePaddr = 0;
+    savedDoWrite = false;
+    savedHasSharers = false;
+    savedPteReqFlags = 0;
 }
 
 void
@@ -246,8 +298,13 @@ Walker::startWalkWrapper()
                               true);
     Fault fault = NoFault;
     if (e) {
-       fault = tlb->checkPermissions(currState->tc, currState->memaccess,
-                            e->vaddr, currState->mode, e->pte);
+        fault = tlb->checkPermissions(currState->tc, currState->memaccess,
+                             e->vaddr, currState->mode, e->pte);
+        if (fault == NoFault) {
+            fault = tlb->checkSpearVPermissions(
+                e, currState->req->getVaddr(), currState->mode,
+                currState->tc, currState->memaccess.priv);
+        }
     }
 
     while ((num_squashed < numSquashable) && currState &&
@@ -284,9 +341,15 @@ Walker::startWalkWrapper()
             Addr vpn = getVPNFromVAddr(vaddr, currState->satp.mode);
             e = tlb->lookup(vpn, currState->satp.asid, currState->mode,
                             true);
+            fault = NoFault;
             if (e) {
                 fault = tlb->checkPermissions(currState->tc,
                     currState->memaccess, e->vaddr, currState->mode, e->pte);
+                if (fault == NoFault) {
+                    fault = tlb->checkSpearVPermissions(
+                        e, currState->req->getVaddr(), currState->mode,
+                        currState->tc, currState->memaccess.priv);
+                }
             }
         } else {
             currState = NULL;
@@ -406,6 +469,7 @@ Walker::WalkerState::walk()
 
     // This is the vaddr to walk for
     Addr vaddr = entry.vaddr;
+    origVaddr = vaddr;
 
     // Decide the type of walk to perform
     // When memaccess is virtual, GStage is enabled
@@ -434,22 +498,52 @@ Walker::WalkerState::walkOneStage(Addr vaddr)
 {
 
     curstage = XlateStage::FIRST_STAGE;
+    origVaddr = vaddr;
 
     // Make sure MSBS are the same
     // riscv-privileged-20211203 page 84
     auto mask_for_msbs = mask(64 - SV39_VADDR_BITS);
     auto msbs = bits(vaddr, 63, SV39_VADDR_BITS);
     if (msbs != 0 && msbs != mask_for_msbs) {
+        state = Ready;
+        nextState = Waiting;
         return pageFault();
     }
 
     Addr pte_addr = setupWalk(vaddr);
     level = SV39_LEVELS - 1;
-    // Create physical request for first_pte_addr
-    // This is a host physical address
-    // In two-stage this gets discarded?
-    read = createReqPacket(pte_addr,
-            MemCmd::ReadReq, sizeof(PTESv39));
+
+    tagMode = static_cast<TagMode>(
+        bits(tc->readMiscRegNoEffect(MISCREG_U_TAG_MODE), 1, 0));
+    tagStorageBase = tc->readMiscRegNoEffect(MISCREG_U_TAG_STORAGE_BASE);
+    tagDramBase = bits(tc->readMiscRegNoEffect(MISCREG_U_TAG_DRAM_BASE), 43, 0);
+    tagControl = tc->readMiscRegNoEffect(MISCREG_U_TAG_CONTROL) & TAG_CTRL_MASK;
+    memEndPaddr = walker->getMemEndPaddr();
+
+    tagActive = (tagMode != MTAG0 && tagMode <= MTAG128 &&
+                 tagStorageBase != 0 && walkType == OneStage);
+    ptImmAccum = true;
+    currentTag.clear();
+    pendingTagLow = 0;
+    savedPte = 0;
+    savedModifiedPte = 0;
+    savedPtePaddr = 0;
+    savedDoWrite = false;
+    savedHasSharers = false;
+    savedPteReqFlags = 0;
+
+    if (tagActive && ppnHasTag(satp.ppn, tagStorageBase, tagDramBase,
+                               tagMode, memEndPaddr)) {
+        const Addr rootTagAddr = ppnToTagPaddr(
+            satp.ppn, tagStorageBase, tagDramBase, tagMode, false);
+        const size_t tagBytes =
+            (tagMode == MTAG32) ? sizeof(uint32_t) : sizeof(uint64_t);
+        tagPhase = ReadRootPtTagLow;
+        read = createReqPacket(rootTagAddr, MemCmd::ReadReq, tagBytes);
+    } else {
+        tagPhase = ReadPte;
+        read = createReqPacket(pte_addr, MemCmd::ReadReq, sizeof(PTESv39));
+    }
 
     if (timing)
     {
@@ -483,6 +577,8 @@ Walker::WalkerState::walkOneStage(Addr vaddr)
         // not happen so this pointer is ignored after stepWalk
         if (write && !functional) {
             walker->port.sendAtomic(write);
+            delete write;
+            write = nullptr;
         }
     } while (read);
 
@@ -641,6 +737,7 @@ Walker::WalkerState::startFunctional(Addr &addr, unsigned &logBytes)
 {
     // Pass the addess to entry here
     // initState cannot because there is no req object
+    origVaddr = addr;
     entry.vaddr = addr;
     // just call walk
     // it takes care to do the right thing
@@ -655,7 +752,7 @@ Walker::WalkerState::startFunctional(Addr &addr, unsigned &logBytes)
 
 Fault
 Walker::WalkerState::checkPTEPermissions(
-    PTESv39 pte, WalkFlags& stepWalkFlags, int level)
+    PTESv39 &pte, WalkFlags& stepWalkFlags, int level)
 {
     // If valid bit is off OR
     // the page is writable but not readable, throw pf
@@ -710,172 +807,351 @@ Walker::WalkerState::checkPTEPermissions(
 }
 
 Fault
+Walker::WalkerState::checkLeafTagIntegrity() const
+{
+    const PageType pt = currentTag.pageType();
+
+    // 1. PT immutability check (PT_ENCLAVE / PT_MONITOR)
+    if (!(tagControl & TAG_CTRL_DISABLE_IMM_PT_CHECKS) &&
+        (pt == PT_ENCLAVE || pt == PT_MONITOR) && !ptImmAccum) {
+        DPRINTF(SpearV,
+                "PT immutability fault: vaddr=%#x pt=%u ptImmAccum=%d\n",
+                origVaddr, static_cast<unsigned>(pt), ptImmAccum);
+        return std::make_shared<AddressFault>(
+            origVaddr, ExceptionCode::ENC_INTEGRITY_FAULT);
+    }
+
+    // 2. VPN and PTE permissions check (MTAG64 / MTAG128, PT_ENCLAVE)
+    if (!(tagControl & TAG_CTRL_DISABLE_TAG_COMPARE_CHECKS) &&
+        pt == PT_ENCLAVE &&
+        (tagMode == MTAG64 || tagMode == MTAG128)) {
+        const Addr expectedVpn = getVPNFromVAddr(origVaddr, satp.mode);
+        const uint8_t expectedPerms = pteToTagPerms(savedPte);
+        if (currentTag.vpn() != expectedVpn ||
+            currentTag.ptePerms() != expectedPerms) {
+            DPRINTF(SpearV,
+                    "VPN/perm mismatch: vaddr=%#x tagVpn=%#x expVpn=%#x "
+                    "tagPerms=%#x expPerms=%#x\n",
+                    origVaddr, currentTag.vpn(), expectedVpn,
+                    currentTag.ptePerms(), expectedPerms);
+            return std::make_shared<AddressFault>(
+                origVaddr, ExceptionCode::ENC_INTEGRITY_FAULT);
+        }
+    }
+
+    // 3. Page level check (PT_ENCLAVE only; never PT_PAGETABLE)
+    if (!(tagControl & TAG_CTRL_DISABLE_TAG_COMPARE_CHECKS) &&
+        pt == PT_ENCLAVE &&
+        static_cast<int>(currentTag.pageLevel()) != level) {
+        DPRINTF(SpearV,
+                "Page level mismatch: vaddr=%#x tagLvl=%u walkLvl=%d\n",
+                origVaddr, static_cast<unsigned>(currentTag.pageLevel()),
+                level);
+        return std::make_shared<AddressFault>(
+            origVaddr, ExceptionCode::ENC_INTEGRITY_FAULT);
+    }
+
+    return NoFault;
+}
+
+Fault
+Walker::WalkerState::finishTaggedLeaf(PacketPtr &write, bool tagValid)
+{
+    if (walkType == OneStage ||
+        (walkType == TwoStage && curstage == FIRST_STAGE)) {
+        assert(!(savedPte.n) || level == 0);
+        entry.pte = savedModifiedPte;
+        entry.paddr = (savedPte.n) ?
+            savedPte.ppn & ~mask(NapotShift) :
+            savedPte.ppn;
+        entry.logBytes = (savedPte.n) ?
+            PageShift + NapotShift :
+            PageShift + (level * SV39_LEVEL_BITS);
+
+        if (walkType != TwoStage) {
+            entry.logBytes = PageShift + (level * SV39_LEVEL_BITS);
+            entry.vaddr = origVaddr & ~mask(entry.logBytes);
+        }
+
+        if (!savedModifiedPte.d && mode != BaseMMU::Write) {
+            entry.pte.w = 0;
+        }
+
+        if (tagValid) {
+            entry.tagValid = true;
+            entry.e = (currentTag.pageType() == PT_ENCLAVE);
+            entry.imm = currentTag.immutable();
+            entry.hpce = currentTag.hpce();
+            entry.pageType = static_cast<uint8_t>(currentTag.pageType());
+            entry.eid = currentTag.id();
+            entry.mpk = (tagMode == MTAG128) ? currentTag.mpk() : 0;
+            entry.tagPtePerms =
+                (tagMode >= MTAG64) ? currentTag.ptePerms() : 0;
+        } else {
+            entry.tagValid = false;
+            entry.e = false;
+            entry.imm = false;
+            entry.hpce = false;
+            entry.pageType = 0;
+            entry.eid = 0;
+            entry.mpk = 0;
+            entry.tagPtePerms = 0;
+        }
+    }
+
+    if (!functional) {
+        Fault spearvFault = walker->tlb->checkSpearVPermissions(
+            &entry, origVaddr, mode, tc, pmode);
+        if (spearvFault != NoFault) {
+            endWalk();
+            return spearvFault;
+        }
+    }
+
+    if (level == 1) {
+        walker->pagewalkerstats.num_2mb_walks++;
+    }
+    if (level == 0) {
+        walker->pagewalkerstats.num_4kb_walks++;
+    }
+    DPRINTF(PageTableWalker, "#1 leaf node at level %d, with vpn %#x\n",
+            level, entry.vaddr);
+
+    if (!functional && savedDoWrite &&
+        !(walkType == TwoStage && curstage == FIRST_STAGE)) {
+        write = createReqPacket(
+            savedPtePaddr, MemCmd::WriteReq, sizeof(PTESv39));
+        write->req->setFlags(
+            savedPteReqFlags & (Request::UNCACHEABLE | Request::STRICT_ORDER));
+        if (savedHasSharers) {
+            write->setHasSharers();
+        }
+        write->setLE<uint64_t>(savedModifiedPte);
+    }
+
+    if (!functional && !memaccess.bypassTLB() && walkType != TwoStage) {
+        Addr vpn = getVPNFromVAddr(entry.vaddr, satp.mode);
+        walker->tlb->insert(vpn, entry);
+    }
+
+    endWalk();
+    return NoFault;
+}
+
+Fault
 Walker::WalkerState::stepWalk(PacketPtr &write)
 {
     assert(state != Ready && state != Waiting);
 
     Fault fault = NoFault;
     write = NULL;
-    PTESv39 pte = read->getLE<uint64_t>();
-    Addr nextRead = 0;
 
-    // walk flags are initialized to false
-    WalkFlags stepWalkFlags;
+    auto issueNextRead = [&](Addr paddr, size_t bytes, TagWalkPhase nextPhase) {
+        delete read;
+        read = createReqPacket(paddr, MemCmd::ReadReq, bytes);
+        tagPhase = nextPhase;
+        nextState = Translate;
+    };
 
-    DPRINTF(PageTableWalker, "Got level%d PTE: %#x\n", level, pte);
+    const size_t tagBytes =
+        (tagMode == MTAG32) ? sizeof(uint32_t) : sizeof(uint64_t);
 
-    // step 2:
-    // Performing PMA/PMP checks on physical address of PTE
+    auto finishOrFetchTargetTag = [&]() -> Fault {
+        if (!(savedPte.r || savedPte.x)) {
+            // Intermediate non-leaf page table tag: accumulate immutability
+            ptImmAccum &= currentTag.immutable();
+            const Addr shift = PageShift + SV39_LEVEL_BITS * level;
+            const Addr idx = (origVaddr >> shift) & mask(SV39_LEVEL_BITS);
+            const Addr nextRead =
+                (savedPte.ppn << PageShift) + (idx * sizeof(PTESv39));
+            issueNextRead(nextRead, sizeof(PTESv39), ReadPte);
+            return NoFault;
+        }
 
-    // Effective privilege mode for pmp checks for page table
-    // walks is S mode according to specs
-    fault = walker->pmp->pmpCheck(read->req, BaseMMU::Read,
-                    RiscvISA::PrivilegeMode::PRV_S, tc, entry.vaddr);
+        // Leaf page: run integrity checks BEFORE HPCE check
+        Fault checkFault = checkLeafTagIntegrity();
+        if (checkFault != NoFault) {
+            endWalk();
+            return checkFault;
+        }
 
-    if (fault == NoFault) {
-        fault = walker->pma->check(read->req, BaseMMU::Read, entry.vaddr);
-    }
+        if (level == 1 && currentTag.hpce()) {
+            level = 0;
+            savedPte.ppn = savedPte.ppn | bits(origVaddr, 20, 12);
+            if (ppnHasTag(savedPte.ppn, tagStorageBase, tagDramBase,
+                          tagMode, memEndPaddr)) {
+                const Addr hpceTagAddr = ppnToTagPaddr(
+                    savedPte.ppn, tagStorageBase, tagDramBase, tagMode, false);
+                issueNextRead(hpceTagAddr, tagBytes, ReadHpce4kTagLow);
+                return NoFault;
+            }
+            currentTag.clear();
+            return finishTaggedLeaf(write, false);
+        }
 
-    if (fault == NoFault) {
+        return finishTaggedLeaf(write, true);
+    };
 
-        fault = checkPTEPermissions(pte, stepWalkFlags, level);
+    switch (tagPhase) {
+      case ReadRootPtTagLow: {
+        if (tagMode == MTAG32) {
+            currentTag = MemoryTag::fromU32(read->getLE<uint32_t>());
+        } else if (tagMode == MTAG64) {
+            currentTag = MemoryTag::fromU64(read->getLE<uint64_t>());
+        } else {
+            pendingTagLow = read->getLE<uint64_t>();
+            const Addr highAddr = ppnToTagPaddr(
+                satp.ppn, tagStorageBase, tagDramBase, tagMode, true);
+            issueNextRead(highAddr, sizeof(uint64_t), ReadRootPtTagHigh);
+            return NoFault;
+        }
+        ptImmAccum &= currentTag.immutable();
+        issueNextRead(setupWalk(origVaddr), sizeof(PTESv39), ReadPte);
+        return NoFault;
+      }
 
-        if (fault == NoFault && stepWalkFlags.pteIsLeaf) {
+      case ReadRootPtTagHigh: {
+        currentTag = MemoryTag::fromU128(
+            pendingTagLow, read->getLE<uint64_t>());
+        ptImmAccum &= currentTag.immutable();
+        issueNextRead(setupWalk(origVaddr), sizeof(PTESv39), ReadPte);
+        return NoFault;
+      }
 
+      case ReadPte: {
+        PTESv39 pte = read->getLE<uint64_t>();
+        WalkFlags stepWalkFlags;
+
+        DPRINTF(PageTableWalker, "Got level%d PTE: %#x\n", level, pte);
+
+        // Effective privilege mode for pmp checks for page table
+        // walks is S mode according to specs
+        fault = walker->pmp->pmpCheck(read->req, BaseMMU::Read,
+                        RiscvISA::PrivilegeMode::PRV_S, tc, entry.vaddr);
+
+        if (fault == NoFault) {
+            fault = walker->pma->check(read->req, BaseMMU::Read, entry.vaddr);
+        }
+
+        if (fault == NoFault) {
+            fault = checkPTEPermissions(pte, stepWalkFlags, level);
+        }
+
+        if (fault != NoFault) {
+            endWalk();
+            return fault;
+        }
+
+        if (stepWalkFlags.pteIsLeaf) {
             if (stepWalkFlags.doWrite) {
-
-                // this read will eventually become write
-                // if doWrite is True
-
                 fault = walker->pmp->pmpCheck(read->req,
                             BaseMMU::Write, pmode, tc, entry.vaddr);
-
                 if (fault == NoFault) {
                     fault = walker->pma->check(read->req,
                                 BaseMMU::Write, entry.vaddr);
                 }
+                if (fault != NoFault) {
+                    endWalk();
+                    return fault;
+                }
             }
 
-            // perform next step only if pmp checks pass
-            if (fault == NoFault) {
-                // TLB inserts are OK for single stage walks
-                // For two-stage, FIRST_STAGE will reach here just once
-                // but the TLB insertion is done in walkTwoStage()
-                if (walkType == OneStage ||
-                    (walkType == TwoStage && curstage == FIRST_STAGE))
-                {
-                    // Fill in TLB entry
-                    // Check if N (contig bit) is set, if yes we have
-                    // a 64K page mapping (SVNAPOT Extension)
-                    assert(!(pte.n) || level == 0);
-                    entry.pte = pte;
-                    entry.paddr = (pte.n) ?
-                        pte.ppn & ~mask(NapotShift) :
-                        pte.ppn;
+            savedPte = pte;
+            savedModifiedPte = pte;
+            savedPtePaddr = read->req->getPaddr();
+            savedDoWrite = stepWalkFlags.doWrite;
+            savedHasSharers = read->hasSharers();
+            savedPteReqFlags = read->req->getFlags();
 
-                    entry.logBytes = (pte.n) ?
-                        PageShift + NapotShift :
-                        PageShift + (level * SV39_LEVEL_BITS);
-
-                    // Only truncate the address in non-two stage walks
-                    // The truncation for two-stage is done in
-                    // walkTwoStage()
-                    if (walkType != TwoStage) {
-                        entry.logBytes = PageShift +
-                                        (level * SV39_LEVEL_BITS);
-                        entry.vaddr &= ~((1 << entry.logBytes) - 1);
-                    }
-
-                    // put it non-writable into the TLB to detect
-                    // writes and redo the page table walk in order
-                    // to update the dirty flag
-                    if (!pte.d && mode != BaseMMU::Write)
-                        entry.pte.w = 0;
-
-                    // Don't do TLB insert here when ending TwoStage.
-                    // An additional GStage is done in walkTwoStage()
-                    // and then we insert.
-                    // Also don't insert on special_access
-                    if (walkType != TwoStage && !memaccess.bypassTLB())
-                        stepWalkFlags.doTLBInsert = true;
-                }
-
-                // Update statistics for completed page walks
-                if (level == 1) {
-                    walker->pagewalkerstats.num_2mb_walks++;
-                }
-                if (level == 0) {
-                    walker->pagewalkerstats.num_4kb_walks++;
-                }
-                DPRINTF(PageTableWalker,
-                        "#1 leaf node at level %d, with vpn %#x\n",
-                        level, entry.vaddr);
+            if (tagActive && ppnHasTag(pte.ppn, tagStorageBase, tagDramBase,
+                                       tagMode, memEndPaddr)) {
+                const Addr tagAddr = ppnToTagPaddr(
+                    pte.ppn, tagStorageBase, tagDramBase, tagMode, false);
+                issueNextRead(tagAddr, tagBytes, ReadTargetTagLow);
+                return NoFault;
             }
-        }
-        // PTE is not a leaf and there was no fault, decrement level
-        else if (fault == NoFault) {
-            Addr shift, idx;
+
+            currentTag.clear();
+            return finishTaggedLeaf(write, false);
+        } else {
             level--;
-            if (level < 0)
-            {
-                stepWalkFlags.doEndWalk = true;
-                fault = pageFault();
+            if (level < 0) {
+                endWalk();
+                return pageFault();
             }
-            else {
-                shift = (PageShift + SV39_LEVEL_BITS * level);
-                idx = (entry.vaddr >> shift) & mask(SV39_LEVEL_BITS);
-                nextRead = (pte.ppn << PageShift) + (idx * sizeof(pte));
-                nextState = Translate;
+
+            savedPte = pte;
+            if (tagActive && ppnHasTag(pte.ppn, tagStorageBase, tagDramBase,
+                                       tagMode, memEndPaddr)) {
+                const Addr tagAddr = ppnToTagPaddr(
+                    pte.ppn, tagStorageBase, tagDramBase, tagMode, false);
+                issueNextRead(tagAddr, tagBytes, ReadTargetTagLow);
+                return NoFault;
             }
+
+            const Addr shift = PageShift + SV39_LEVEL_BITS * level;
+            const Addr idx = (origVaddr >> shift) & mask(SV39_LEVEL_BITS);
+            const Addr nextRead =
+                (pte.ppn << PageShift) + (idx * sizeof(PTESv39));
+            issueNextRead(nextRead, sizeof(PTESv39), ReadPte);
+            return NoFault;
         }
-    } else {
-        stepWalkFlags.doEndWalk = true;
+      }
+
+      case ReadTargetTagLow: {
+        if (tagMode == MTAG32) {
+            currentTag = MemoryTag::fromU32(read->getLE<uint32_t>());
+        } else if (tagMode == MTAG64) {
+            currentTag = MemoryTag::fromU64(read->getLE<uint64_t>());
+        } else {
+            pendingTagLow = read->getLE<uint64_t>();
+            const Addr highAddr = ppnToTagPaddr(
+                savedPte.ppn, tagStorageBase, tagDramBase, tagMode, true);
+            issueNextRead(highAddr, sizeof(uint64_t), ReadTargetTagHigh);
+            return NoFault;
+        }
+        return finishOrFetchTargetTag();
+      }
+
+      case ReadTargetTagHigh: {
+        currentTag = MemoryTag::fromU128(
+            pendingTagLow, read->getLE<uint64_t>());
+        return finishOrFetchTargetTag();
+      }
+
+      case ReadHpce4kTagLow: {
+        if (tagMode == MTAG32) {
+            currentTag = MemoryTag::fromU32(read->getLE<uint32_t>());
+        } else if (tagMode == MTAG64) {
+            currentTag = MemoryTag::fromU64(read->getLE<uint64_t>());
+        } else {
+            pendingTagLow = read->getLE<uint64_t>();
+            const Addr highAddr = ppnToTagPaddr(
+                savedPte.ppn, tagStorageBase, tagDramBase, tagMode, true);
+            issueNextRead(highAddr, sizeof(uint64_t), ReadHpce4kTagHigh);
+            return NoFault;
+        }
+        Fault checkFault = checkLeafTagIntegrity();
+        if (checkFault != NoFault) {
+            endWalk();
+            return checkFault;
+        }
+        return finishTaggedLeaf(write, true);
+      }
+
+      case ReadHpce4kTagHigh: {
+        currentTag = MemoryTag::fromU128(
+            pendingTagLow, read->getLE<uint64_t>());
+        Fault checkFault = checkLeafTagIntegrity();
+        if (checkFault != NoFault) {
+            endWalk();
+            return checkFault;
+        }
+        return finishTaggedLeaf(write, true);
+      }
     }
 
-    PacketPtr oldRead = read;
-    Request::Flags flags = oldRead->req->getFlags();
-
-    if (stepWalkFlags.doEndWalk) {
-        // If we need to write, adjust the read packet to write the modified
-        // value back to memory. Use a fresh packet so any responder flags set
-        // during the read do not leak into the write request.
-        PacketPtr new_write = nullptr;
-        if (!functional && stepWalkFlags.doWrite &&
-            !(walkType == TwoStage && curstage == FIRST_STAGE))
-        {
-            new_write = new Packet(oldRead, true, true);
-            if (oldRead->hasSharers()) {
-                new_write->setHasSharers();
-            }
-            new_write->setLE<uint64_t>(pte);
-            new_write->cmd = MemCmd::WriteReq;
-            read = NULL;
-            delete oldRead;
-            oldRead = nullptr;
-        }
-        write = new_write;
-
-        if (stepWalkFlags.doTLBInsert) {
-            if (!functional && !memaccess.bypassTLB()) {
-                Addr vpn = getVPNFromVAddr(entry.vaddr, satp.mode);
-                walker->tlb->insert(vpn, entry);
-            }
-        }
-        endWalk();
-    }
-    else {
-        //If we didn't return, we're setting up another read.
-        RequestPtr request = std::make_shared<Request>(
-            nextRead, oldRead->getSize(), flags, walker->requestorId);
-
-        delete oldRead;
-        oldRead = nullptr;
-
-        read = new Packet(request, MemCmd::ReadReq);
-        read->allocate();
-    }
-
-    return fault;
+    panic("Unknown TagWalkPhase %d\n", static_cast<int>(tagPhase));
 }
 
 Fault
@@ -1100,6 +1376,7 @@ Walker::WalkerState::recvPacket(PacketPtr pkt)
     if (squashed) {
         // if were were squashed, return true once inflight is zero and
         // this WalkerState will be freed there.
+        delete pkt;
         return (inflight == 0);
     }
     if (pkt->isRead()) {
@@ -1138,8 +1415,11 @@ Walker::WalkerState::recvPacket(PacketPtr pkt)
              */
             Addr vaddr = req->getVaddr();
             vaddr = Addr(sext<SV39_VADDR_BITS>(vaddr));
-            Addr paddr = walker->tlb->hiddenTranslateWithTLB(vaddr, satp.asid,
-                                                             satp.mode, mode);
+            Addr paddr = memaccess.bypassTLB() ?
+                (((entry.paddr >> (entry.logBytes - PageShift)) <<
+                  entry.logBytes) | (vaddr & mask(entry.logBytes))) :
+                walker->tlb->hiddenTranslateWithTLB(
+                    vaddr, satp.asid, satp.mode, mode);
 
             req->setPaddr(paddr);
 
@@ -1201,6 +1481,10 @@ PacketPtr
 Walker::WalkerState::createReqPacket(Addr paddr, MemCmd cmd, size_t bytes)
 {
     Request::Flags flags = Request::PHYSICAL;
+    if (tc && (tc->readMiscRegNoEffect(MISCREG_U_TAG_CONTROL) &
+               TAG_CTRL_NC_PTW_IN_E)) {
+        flags.set(Request::UNCACHEABLE);
+    }
     RequestPtr request = std::make_shared<Request>(
         paddr, bytes, flags, walker->requestorId);
     PacketPtr pkt = new Packet(request, cmd);

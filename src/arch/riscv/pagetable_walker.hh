@@ -45,6 +45,7 @@
 #include "arch/riscv/pagetable.hh"
 #include "arch/riscv/pma_checker.hh"
 #include "arch/riscv/pmp.hh"
+#include "arch/riscv/spearv.hh"
 #include "arch/riscv/tlb.hh"
 #include "base/statistics.hh"
 #include "base/types.hh"
@@ -110,9 +111,20 @@ namespace RiscvISA
                 Translate,
             };
 
+            enum TagWalkPhase
+            {
+                ReadRootPtTagLow,
+                ReadRootPtTagHigh,
+                ReadPte,
+                ReadTargetTagLow,
+                ReadTargetTagHigh,
+                ReadHpce4kTagLow,
+                ReadHpce4kTagHigh,
+            };
+
           protected:
             Walker *walker;
-            WalkType walkType;
+            WalkType walkType = OneStage;
             ThreadContext *tc;
             RequestPtr req;
             State state;
@@ -124,13 +136,13 @@ namespace RiscvISA
             unsigned inflight;
             TlbEntry gresult;
             TlbEntry entry;
-            PacketPtr read;
+            PacketPtr read = nullptr;
             std::vector<PacketPtr> writes;
-            Fault timingFault;
+            Fault timingFault = NoFault;
             BaseMMU::Translation * translation;
             BaseMMU::Mode mode;
             MemAccessInfo memaccess;
-            XlateStage curstage;
+            XlateStage curstage = FIRST_STAGE;
             SATP satp;
             SATP hgatp;
             STATUS status;
@@ -140,15 +152,44 @@ namespace RiscvISA
             bool retrying;
             bool started;
             bool squashed;
+
+            // SPEAR-V tag walk state
+            TagWalkPhase tagPhase = ReadPte;
+            bool tagActive = false;
+            TagMode tagMode = MTAG0;
+            Addr tagStorageBase = 0;
+            uint64_t tagDramBase = 0;
+            uint64_t tagControl = 0;
+            Addr memEndPaddr = 0;
+            bool ptImmAccum = true;
+            MemoryTag currentTag;
+            uint64_t pendingTagLow = 0;
+            Addr origVaddr = 0;
+            PTESv39 savedPte = 0;
+            PTESv39 savedModifiedPte = 0;
+            Addr savedPtePaddr = 0;
+            bool savedDoWrite = false;
+            bool savedHasSharers = false;
+            Request::Flags savedPteReqFlags = 0;
           public:
             WalkerState(Walker * _walker, BaseMMU::Translation *_translation,
                         const RequestPtr &_req, bool _isFunctional = false) :
                 walker(_walker), req(_req), state(Ready),
                 nextState(Ready), level(0), glevel(0), inflight(0),
+                read(nullptr), timingFault(NoFault),
                 translation(_translation),
                 functional(_isFunctional), timing(false),
                 retrying(false), started(false), squashed(false)
             {
+            }
+            ~WalkerState()
+            {
+                delete read;
+                read = nullptr;
+                for (PacketPtr w : writes) {
+                    delete w;
+                }
+                writes.clear();
             }
             void initState(ThreadContext * _tc, BaseMMU::Mode _mode,
                            bool _isTiming = false);
@@ -166,7 +207,9 @@ namespace RiscvISA
 
           private:
             Fault checkPTEPermissions(
-              PTESv39 pte, WalkFlags& stepWalkFlags, int level);
+              PTESv39 &pte, WalkFlags& stepWalkFlags, int level);
+            Fault checkLeafTagIntegrity() const;
+            Fault finishTaggedLeaf(PacketPtr &write, bool tagValid);
             Addr setupWalk(Addr vaddr);
             Fault stepWalk(PacketPtr &write);
             Fault stepWalkGStage(PacketPtr &write);
@@ -211,6 +254,10 @@ namespace RiscvISA
         BasePMAChecker * pma;
         PMP * pmp;
         RequestorID requestorId;
+        Addr cachedMemEndPaddr = 0;
+        bool memEndPaddrCached = false;
+
+        Addr getMemEndPaddr();
 
         // The number of outstanding walks that can be squashed per cycle.
         unsigned numSquashable;
